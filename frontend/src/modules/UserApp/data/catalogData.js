@@ -240,4 +240,9 @@ export const getApprovedVendors = () =>
   );
 
 export const getBrandById = (id) =>
-  getCatalogBrands().find((b) => normalizeId(b.id) === normalizeId(id));
+  getCatalogBrands().find(
+    (b) =>
+      normalizeId(b.id) === normalizeId(id) ||
+      normalizeId(b._id) === normalizeId(id) ||
+      String(b.name || '').toLowerCase() === String(id || '').toLowerCase()
+  );

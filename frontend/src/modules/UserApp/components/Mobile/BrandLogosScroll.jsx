@@ -1,158 +1,226 @@
-import { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { getCatalogBrands } from '../../data/catalogData';
 
-const placeholderLogo = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect fill="#f5f5f5" width="120" height="80"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#999" font-size="14" font-family="Arial">Brand</text></svg>')}`;
+const getBrandInitials = (name) => {
+  if (!name) return 'B';
+  const words = String(name).trim().split(/\s+/);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+};
 
 const BrandLogosScroll = ({ brands = null }) => {
-    const navigate = useNavigate();
-    const containerRef = useRef(null);
-    const [cardWidth, setCardWidth] = useState(null);
+  const navigate = useNavigate();
+  const scrollRef = useRef(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, scrollLeft: 0, moved: false });
 
-    const fallbackBrands = getCatalogBrands().slice(0, 10);
-    const displayBrands = Array.isArray(brands) && brands.length > 0
-        ? brands.slice(0, 10)
-        : fallbackBrands;
+  const fallbackBrands = getCatalogBrands();
+  const displayBrands = Array.isArray(brands) && brands.length > 0
+    ? brands
+    : fallbackBrands;
 
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
+  // Repeat brands to create a smooth, seamless infinite loop
+  const marqueeBrands = displayBrands.length > 0
+    ? [...displayBrands, ...displayBrands, ...displayBrands]
+    : [];
 
-        let isMounted = true;
+  // Continuous auto-movement animation
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || displayBrands.length === 0) return;
 
-        const calculateWidth = () => {
-            if (!isMounted || !containerRef.current) return;
-            const available = containerRef.current.clientWidth;
-            if (available > 0) {
-                const gap = 10; // 10px gap
-                const columns = 4; // exactly 4 brands visible without cut-off
-                // subtract 2px to ensure no rounding overflow
-                const computed = Math.floor((available - (gap * (columns - 1)) - 2) / columns);
-                if (isMounted) {
-                    setCardWidth(Math.max(computed, 64));
-                }
-            }
-        };
+    let animId;
+    const speed = 0.65; // Smooth scroll velocity per frame
 
-        calculateWidth();
+    const step = () => {
+      if (!isPaused && !isDragging && el) {
+        el.scrollLeft += speed;
+        // Seamless infinite wrap-around
+        if (el.scrollLeft >= el.scrollWidth / 3) {
+          el.scrollLeft = 0;
+        }
+      }
+      animId = requestAnimationFrame(step);
+    };
 
-        if (typeof ResizeObserver === 'undefined') return;
+    animId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(animId);
+  }, [isPaused, isDragging, displayBrands.length]);
 
-        const ro = new ResizeObserver(() => {
-            if (isMounted) {
-                calculateWidth();
-            }
-        });
+  // Mouse drag-to-scroll support
+  const handleMouseDown = (e) => {
+    setIsPaused(true);
+    setIsDragging(true);
+    const el = scrollRef.current;
+    if (!el) return;
+    dragStartRef.current = {
+      x: e.pageX - el.offsetLeft,
+      scrollLeft: el.scrollLeft,
+      moved: false,
+    };
+  };
 
-        ro.observe(el);
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - dragStartRef.current.x) * 1.5;
+    if (Math.abs(walk) > 4) {
+      dragStartRef.current.moved = true;
+    }
+    el.scrollLeft = dragStartRef.current.scrollLeft - walk;
+  };
 
-        return () => {
-            isMounted = false;
-            ro.disconnect();
-        };
-    }, []);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setTimeout(() => {
+      dragStartRef.current.moved = false;
+    }, 50);
+  };
 
-    return (
-        <section className="bg-transparent w-full overflow-hidden px-4 py-3">
-            {/* Desktop Layout - White card container full width */}
-            <div className="hidden md:block bg-white rounded-2xl mb-4 p-5 shadow-sm border border-gray-100/80 w-full">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-bold text-gray-800 tracking-tight">Top Brands</h2>
-                    <button
-                        onClick={() => navigate('/brands')}
-                        className="text-sm font-semibold text-brand-primary hover:underline transition-colors"
-                    >
-                        See All &rarr;
-                    </button>
-                </div>
-                <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4 w-full items-center justify-between">
-                    {displayBrands.map((brand, index) => (
-                        <motion.div
-                            key={brand.id}
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            whileInView={{ opacity: 1, scale: 1 }}
-                            viewport={{ once: true }}
-                            transition={{ delay: index * 0.03, duration: 0.2 }}
-                            className="flex flex-col items-center w-full"
-                        >
-                            <div
-                                onClick={() => navigate(`/brand/${brand.id}`)}
-                                className="bg-gray-50/80 rounded-xl p-2.5 shadow-sm transition-all duration-300 flex items-center justify-center w-full aspect-square group cursor-pointer border border-gray-200/60 hover:shadow-md hover:border-amber-400 hover:bg-white"
-                            >
-                                <img
-                                    src={brand.logo || placeholderLogo}
-                                    alt={brand.name}
-                                    className="w-4/5 h-4/5 object-contain transition-transform group-hover:scale-110"
-                                    onError={(e) => {
-                                        e.target.src = placeholderLogo;
-                                    }}
-                                    loading="lazy"
-                                />
-                            </div>
-                            <p className="text-xs font-semibold text-gray-700 text-center truncate w-full mt-2 group-hover:text-brand-primary">
-                                {brand.name}
-                            </p>
-                        </motion.div>
-                    ))}
-                </div>
+  // Click on a brand card
+  const handleBrandClick = (brand) => {
+    if (dragStartRef.current.moved) return;
+    const target = brand.id || brand._id || brand.name;
+    if (target) {
+      navigate(`/brand/${encodeURIComponent(target)}`);
+    }
+  };
+
+  // Manual arrow navigation
+  const handleScrollLeft = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({ left: -240, behavior: 'smooth' });
+    }
+  };
+
+  const handleScrollRight = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({ left: 240, behavior: 'smooth' });
+    }
+  };
+
+  if (displayBrands.length === 0) return null;
+
+  return (
+    <section className="bg-transparent w-full overflow-hidden px-3 sm:px-6 my-4 sm:my-6">
+      {/* White container matching Top Brands showcase aesthetic */}
+      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border border-gray-100/90 w-full relative">
+        {/* Header Bar */}
+        <div className="flex items-center justify-between mb-4 sm:mb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+              <h2 className="text-lg sm:text-2xl font-black text-gray-900 tracking-tight">
+                Top Brands
+              </h2>
+            </div>
+            <p className="text-xs sm:text-sm text-gray-500 mt-0.5 hidden sm:block">
+              Shop authentic & verified products directly from premier brands
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Scroll Navigation Arrows */}
+            <div className="hidden sm:flex items-center gap-1.5 mr-1">
+              <button
+                onClick={handleScrollLeft}
+                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-amber-400 text-gray-700 hover:text-amber-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
+                aria-label="Previous Brands"
+              >
+                <FiChevronLeft className="text-base" />
+              </button>
+              <button
+                onClick={handleScrollRight}
+                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-amber-400 text-gray-700 hover:text-amber-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
+                aria-label="Next Brands"
+              >
+                <FiChevronRight className="text-base" />
+              </button>
             </div>
 
-            {/* Mobile Layout */}
-            <div className="md:hidden w-full">
-                <div className="flex items-center justify-between px-1 mb-2.5">
-                    <h2 className="text-lg font-bold text-gray-800 tracking-tight">Top Brands</h2>
-                    <button
-                        onClick={() => navigate('/brands')}
-                        className="text-xs font-semibold text-brand-primary hover:underline transition-colors"
-                    >
-                        See All &rarr;
-                    </button>
-                </div>
+            {/* See All link */}
+            <button
+              onClick={() => navigate('/brands')}
+              className="text-xs sm:text-sm font-bold text-amber-500 hover:text-amber-600 flex items-center gap-1 transition-colors group cursor-pointer"
+            >
+              <span>See All</span>
+              <span className="transition-transform group-hover:translate-x-1">&rarr;</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Moveable Circular Brands Track */}
+        <div
+          ref={scrollRef}
+          onMouseEnter={() => setIsPaused(true)}
+          onMouseLeave={() => {
+            setIsPaused(false);
+            if (isDragging) setIsDragging(false);
+          }}
+          onTouchStart={() => setIsPaused(true)}
+          onTouchEnd={() => setIsPaused(false)}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          className={`w-full overflow-x-auto scrollbar-hide py-2 ${
+            isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'
+          }`}
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          <div className="flex gap-4 sm:gap-6 md:gap-7 items-center w-max">
+            {marqueeBrands.map((brand, index) => {
+              const uniqueKey = `${brand.id || brand._id || brand.name}-${index}`;
+              const hasValidLogo = Boolean(brand.logo && typeof brand.logo === 'string' && !brand.logo.includes('placeholder'));
+
+              return (
                 <div
-                    ref={containerRef}
-                    className="w-full overflow-x-auto scrollbar-hide snap-x snap-mandatory"
-                    style={{ WebkitOverflowScrolling: 'touch' }}
+                  key={uniqueKey}
+                  onClick={() => handleBrandClick(brand)}
+                  className="flex-shrink-0 flex flex-col items-center group cursor-pointer w-20 sm:w-24 md:w-28 select-none transition-transform duration-200"
                 >
-                    <div className="flex gap-2.5 min-w-max pb-2">
-                        {displayBrands.map((brand, index) => (
-                            <motion.div
-                                key={brand.id}
-                                initial={{ opacity: 0, x: -10 }}
-                                whileInView={{ opacity: 1, x: 0 }}
-                                viewport={{ once: true, margin: "-20px" }}
-                                transition={{ delay: index * 0.04, duration: 0.25 }}
-                                className="flex-shrink-0 flex flex-col items-center snap-start"
-                                style={{
-                                    width: cardWidth ? `${cardWidth}px` : '70px',
-                                    minWidth: cardWidth ? `${cardWidth}px` : '70px',
-                                    maxWidth: cardWidth ? `${cardWidth}px` : '70px',
-                                }}
-                            >
-                                <div
-                                    onClick={() => navigate(`/brand/${brand.id}`)}
-                                    className="bg-white rounded-xl p-2 shadow-xs transition-all duration-300 flex items-center justify-center w-full aspect-square group cursor-pointer border border-gray-100 mb-1 hover:shadow-md hover:border-amber-400 active:scale-95"
-                                >
-                                    <img
-                                        src={brand.logo || placeholderLogo}
-                                        alt={brand.name}
-                                        className="w-[82%] h-[82%] object-contain"
-                                        onError={(e) => {
-                                            e.target.src = placeholderLogo;
-                                        }}
-                                        loading="lazy"
-                                    />
-                                </div>
-                                <p className="text-[11px] sm:text-xs font-semibold text-gray-800 text-center transition-colors truncate w-full px-0.5 mt-1">
-                                    {brand.name}
-                                </p>
-                            </motion.div>
-                        ))}
+                  {/* Round Shape Container for Brand Logo */}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-white border-2 border-gray-100 shadow-xs group-hover:shadow-xl group-hover:border-amber-400 group-hover:-translate-y-1 p-2.5 sm:p-3 flex items-center justify-center transition-all duration-300 relative overflow-hidden active:scale-95">
+                    {hasValidLogo ? (
+                      <img
+                        src={brand.logo}
+                        alt={brand.name}
+                        className="w-full h-full object-contain rounded-full transition-transform duration-300 group-hover:scale-110"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          const fallbackDiv = e.target.parentElement.querySelector('.brand-monogram');
+                          if (fallbackDiv) fallbackDiv.style.display = 'flex';
+                        }}
+                        loading="lazy"
+                      />
+                    ) : null}
+
+                    {/* Circular Monogram Fallback Badge */}
+                    <div
+                      className="brand-monogram w-full h-full rounded-full bg-gradient-to-tr from-amber-400 via-amber-300 to-amber-100 text-slate-900 font-black text-xs sm:text-sm md:text-base flex items-center justify-center uppercase tracking-wider shadow-inner"
+                      style={{ display: hasValidLogo ? 'none' : 'flex' }}
+                    >
+                      {getBrandInitials(brand.name)}
                     </div>
+                  </div>
+
+                  {/* Brand Label Underneath */}
+                  <p className="text-[11px] sm:text-xs md:text-sm font-bold text-gray-700 text-center truncate w-full px-1 mt-2 sm:mt-2.5 group-hover:text-amber-600 transition-colors">
+                    {brand.name}
+                  </p>
                 </div>
-            </div>
-        </section>
-    );
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 };
 
 export default BrandLogosScroll;

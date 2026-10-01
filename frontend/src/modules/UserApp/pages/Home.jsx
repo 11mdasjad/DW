@@ -329,7 +329,7 @@ const MobileHome = () => {
 
   const computedBrands = useMemo(() => {
     if (homeBrands.length === 0) return fallbackBrands;
-    return homeBrands.slice(0, 10);
+    return homeBrands;
   }, [homeBrands, fallbackBrands]);
 
   const fetchHomeData = useCallback(async () => {

@@ -256,7 +256,12 @@ const Brand = () => {
                     ? brandsPayload.map(normalizeBrand)
                     : [];
                 const matchedBrand =
-                    brandsList.find((item) => String(item.id) === String(brandId)) || null;
+                    brandsList.find(
+                        (item) =>
+                            String(item.id || item._id) === String(brandId) ||
+                            String(item.name || "").toLowerCase() === String(brandId).toLowerCase() ||
+                            String(item.slug || "").toLowerCase() === String(brandId).toLowerCase()
+                    ) || null;
                 const allProducts = Array.isArray(productsPayload?.products)
                     ? [...productsPayload.products]
                     : [];
