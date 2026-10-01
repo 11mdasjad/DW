@@ -624,131 +624,252 @@ const MobileHome = () => {
             transform: `translateY(${Math.min(pullDistance, 80)}px)`,
             transition: isPulling ? "none" : "transform 0.3s ease-out",
           }}>
-          {/* ── FULL-SCREEN HERO BANNER ── */}
+          {/* ════════════════════════════════════════════════
+               PREMIUM FULL-SCREEN HERO BANNER
+               Pure CSS — no image dependency issues
+          ════════════════════════════════════════════════ */}
           <div
             className="relative w-full overflow-hidden"
-            style={{ height: "100svh", minHeight: "560px", maxHeight: "900px" }}
+            style={{
+              minHeight: "100vh",
+              background: "linear-gradient(135deg, #020c1b 0%, #041226 30%, #061c14 65%, #030d0a 100%)",
+            }}
           >
-            {/* Background: dark green left, image right */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#052e16] via-[#064e3b] to-[#052e16]" />
+            {/* ── Decorative glowing orbs ── */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              {/* Big emerald orb top-right */}
+              <div className="absolute -top-32 right-1/4 w-[600px] h-[600px] rounded-full opacity-20"
+                style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)" }} />
+              {/* Indigo orb bottom-left */}
+              <div className="absolute bottom-0 -left-40 w-[500px] h-[500px] rounded-full opacity-15"
+                style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)" }} />
+              {/* Amber orb center */}
+              <div className="absolute top-1/2 left-1/3 w-[300px] h-[300px] rounded-full opacity-10"
+                style={{ background: "radial-gradient(circle, #f59e0b 0%, transparent 70%)" }} />
+              {/* Grid lines */}
+              <div className="absolute inset-0 opacity-[0.04]"
+                style={{
+                  backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
+                  backgroundSize: "60px 60px"
+                }} />
+            </div>
 
-            {/* Hero photo — positioned to the right */}
-            <img
-              src={dwellmartHeroBg}
-              alt=""
-              aria-hidden="true"
-              className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
-              style={{ objectPosition: "60% center" }}
-              draggable={false}
-              fetchpriority="high"
-            />
+            {/* ── Main content grid ── */}
+            <div className="relative z-10 h-full min-h-screen flex items-center px-8 md:px-14 lg:px-20 xl:px-28">
+              {/* Left side — text */}
+              <div className="flex-1 flex flex-col justify-center py-20 max-w-2xl">
 
-            {/* Left fade so text area stays clean */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#052e16] via-[#052e16]/80 via-40% to-transparent pointer-events-none" />
-            {/* Bottom fade */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
-
-            {/* ── Text Content ── */}
-            <div className="relative z-10 flex flex-col justify-center h-full px-6 sm:px-10 md:px-14 lg:px-20 pb-12" style={{ maxWidth: "55%" }}>
-
-              {/* Badge */}
-              <motion.div
-                initial={{ opacity: 0, y: -12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.45, delay: 0.1 }}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-400/20 border border-emerald-400/40 backdrop-blur-sm text-emerald-300 text-[11px] font-black uppercase tracking-widest mb-5 w-fit"
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>For Every Home · For Every Business</span>
-              </motion.div>
-
-              {/* Headline */}
-              <motion.h1
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.55, delay: 0.2 }}
-                className="font-black leading-[1.08] mb-4 drop-shadow-md"
-                style={{ fontSize: "clamp(2.2rem, 5vw, 4.5rem)" }}
-              >
-                <span className="text-white">Shop Smarter,</span>
-                <br />
-                <span className="text-emerald-400">Live Better</span>
-              </motion.h1>
-
-              {/* Subtitle */}
-              <motion.p
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.32 }}
-                className="text-gray-300 font-medium mb-8 leading-relaxed"
-                style={{ fontSize: "clamp(0.85rem, 1.5vw, 1.1rem)", maxWidth: "38rem" }}
-              >
-                From daily essentials to exciting discoveries —<br className="hidden sm:block" />
-                everything you need is just a click away.
-              </motion.p>
-
-              {/* CTA Buttons */}
-              <motion.div
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.44 }}
-                className="flex flex-wrap items-center gap-3"
-              >
-                <button
-                  type="button"
-                  onClick={() => navigate("/shop")}
-                  className="flex items-center gap-2 px-7 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-sm shadow-xl shadow-emerald-900/40 hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
+                {/* Live badge */}
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5 }}
+                  className="inline-flex items-center gap-2.5 mb-6 w-fit"
                 >
-                  <FiShoppingBag className="text-base shrink-0" />
-                  <span>Shop Now</span>
-                  <FiArrowRight className="text-sm shrink-0" />
-                </button>
+                  <div className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                    </span>
+                    <span className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Dwell Mart • India's #1 Marketplace</span>
+                  </div>
+                </motion.div>
 
-                <button
-                  type="button"
-                  onClick={() => navigate("/new-arrivals")}
-                  className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/40 hover:border-white/70 backdrop-blur-sm font-bold text-sm shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
+                {/* Main headline */}
+                <motion.div
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.65, delay: 0.15 }}
                 >
-                  <FiZap className="text-base text-emerald-300 shrink-0" />
-                  <span>Explore Deals</span>
-                  <FiArrowRight className="text-sm shrink-0" />
-                </button>
-              </motion.div>
+                  <h1 className="font-black leading-[1.05] tracking-tight mb-6"
+                    style={{ fontSize: "clamp(2.8rem, 5.5vw, 5.5rem)" }}>
+                    <span className="text-white">Shop </span>
+                    <span style={{
+                      background: "linear-gradient(135deg, #34d399, #10b981, #059669)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      backgroundClip: "text"
+                    }}>Smarter,</span>
+                    <br />
+                    <span className="text-white">Live </span>
+                    <span style={{
+                      background: "linear-gradient(135deg, #a78bfa, #818cf8, #6366f1)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      backgroundClip: "text"
+                    }}>Better</span>
+                  </h1>
+                </motion.div>
 
-              {/* Trust Badges */}
+                {/* Subtitle */}
+                <motion.p
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
+                  className="text-slate-400 font-medium mb-10 leading-relaxed"
+                  style={{ fontSize: "clamp(1rem, 1.6vw, 1.2rem)", maxWidth: "34rem" }}
+                >
+                  From groceries to gadgets, fashion to furniture —
+                  discover millions of products at the best prices, delivered fast.
+                </motion.p>
+
+                {/* CTA Buttons */}
+                <motion.div
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.42 }}
+                  className="flex flex-wrap items-center gap-4 mb-12"
+                >
+                  <button
+                    type="button"
+                    onClick={() => navigate("/shop")}
+                    className="group flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-base text-white cursor-pointer transition-all duration-300 hover:-translate-y-1 active:scale-95 shadow-2xl"
+                    style={{
+                      background: "linear-gradient(135deg, #10b981, #059669)",
+                      boxShadow: "0 8px 32px rgba(16,185,129,0.35), 0 0 0 1px rgba(16,185,129,0.2)"
+                    }}
+                  >
+                    <FiShoppingBag className="text-lg shrink-0" />
+                    <span>Shop Now</span>
+                    <FiArrowRight className="text-base shrink-0 transition-transform duration-300 group-hover:translate-x-1" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate("/new-arrivals")}
+                    className="group flex items-center gap-3 px-7 py-4 rounded-2xl font-bold text-base text-white cursor-pointer transition-all duration-300 hover:-translate-y-1 active:scale-95"
+                    style={{
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      backdropFilter: "blur(12px)",
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.3)"
+                    }}
+                  >
+                    <FiZap className="text-lg text-amber-400 shrink-0" />
+                    <span>Explore Deals</span>
+                    <FiArrowRight className="text-base shrink-0 transition-transform duration-300 group-hover:translate-x-1" />
+                  </button>
+                </motion.div>
+
+                {/* Stats row */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.6, delay: 0.6 }}
+                  className="flex flex-wrap gap-8 pt-8"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
+                >
+                  {[
+                    { value: "10M+", label: "Products" },
+                    { value: "50K+", label: "Sellers" },
+                    { value: "4.8★", label: "App Rating" },
+                    { value: "24h", label: "Delivery" },
+                  ].map(({ value, label }) => (
+                    <div key={label} className="flex flex-col">
+                      <span className="text-white font-black text-xl">{value}</span>
+                      <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">{label}</span>
+                    </div>
+                  ))}
+                </motion.div>
+              </div>
+
+              {/* Right side — floating category cards grid */}
               <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.5, delay: 0.65 }}
-                className="hidden sm:flex flex-wrap items-center gap-4 mt-9 pt-7 border-t border-white/10"
+                className="hidden lg:flex flex-col items-center justify-center flex-shrink-0 pl-12"
+                style={{ width: "42%" }}
+                initial={{ opacity: 0, x: 60 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.7, delay: 0.25 }}
               >
+                {/* Category cards grid */}
+                <div className="grid grid-cols-3 gap-4 w-full" style={{ maxWidth: "480px" }}>
+                  {[
+                    { emoji: "🛒", name: "Grocery", color: "#10b981", bg: "rgba(16,185,129,0.12)", border: "rgba(16,185,129,0.25)" },
+                    { emoji: "👗", name: "Fashion", color: "#f472b6", bg: "rgba(244,114,182,0.12)", border: "rgba(244,114,182,0.25)" },
+                    { emoji: "📱", name: "Electronics", color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.25)" },
+                    { emoji: "🏠", name: "Home", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.25)" },
+                    { emoji: "💄", name: "Beauty", color: "#c084fc", bg: "rgba(192,132,252,0.12)", border: "rgba(192,132,252,0.25)" },
+                    { emoji: "🧸", name: "Toys", color: "#f97316", bg: "rgba(249,115,22,0.12)", border: "rgba(249,115,22,0.25)" },
+                    { emoji: "🏋️", name: "Sports", color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.25)" },
+                    { emoji: "📚", name: "Books", color: "#a78bfa", bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.25)" },
+                    { emoji: "🚗", name: "Automotive", color: "#38bdf8", bg: "rgba(56,189,248,0.12)", border: "rgba(56,189,248,0.25)" },
+                  ].map(({ emoji, name, color, bg, border }, i) => (
+                    <motion.button
+                      key={name}
+                      type="button"
+                      onClick={() => navigate("/shop")}
+                      initial={{ opacity: 0, scale: 0.8, y: 20 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ duration: 0.45, delay: 0.35 + i * 0.06 }}
+                      whileHover={{ scale: 1.06, y: -4 }}
+                      whileTap={{ scale: 0.96 }}
+                      className="flex flex-col items-center justify-center gap-2 rounded-2xl py-5 px-3 cursor-pointer transition-shadow duration-300"
+                      style={{
+                        background: bg,
+                        border: `1px solid ${border}`,
+                        backdropFilter: "blur(16px)",
+                        boxShadow: `0 4px 24px rgba(0,0,0,0.25)`,
+                      }}
+                    >
+                      <span className="text-3xl leading-none">{emoji}</span>
+                      <span className="text-xs font-bold text-center leading-tight" style={{ color }}>{name}</span>
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/* Floating promo card below grid */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.9 }}
+                  className="mt-5 w-full rounded-2xl px-5 py-4 flex items-center gap-4"
+                  style={{
+                    background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15))",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    backdropFilter: "blur(20px)",
+                    maxWidth: "480px",
+                  }}
+                >
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-2xl"
+                    style={{ background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.3)" }}>
+                    🎁
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-black text-sm">Free Delivery on ₹499+</p>
+                    <p className="text-slate-400 text-xs mt-0.5">Across India • 50,000+ verified sellers</p>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0">
+                    <div className="flex items-center gap-1">
+                      {[1,2,3,4,5].map(s => <span key={s} className="text-amber-400 text-xs">★</span>)}
+                    </div>
+                    <span className="text-slate-500 text-[10px] mt-0.5">4.8 / 5.0</span>
+                  </div>
+                </motion.div>
+              </motion.div>
+            </div>
+
+            {/* Bottom trust bar */}
+            <motion.div
+              className="absolute bottom-0 left-0 right-0 z-10"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.8 }}
+              style={{ background: "rgba(255,255,255,0.03)", borderTop: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(12px)" }}
+            >
+              <div className="max-w-7xl mx-auto px-8 py-3.5 flex items-center justify-center gap-8 flex-wrap">
                 {[
-                  { icon: FiTruck, label: "Free Delivery" },
-                  { icon: FiShield, label: "Secure Payments" },
-                  { icon: FiRotateCcw, label: "Easy Returns" },
+                  { icon: FiTruck, label: "Free Delivery on ₹499+" },
+                  { icon: FiShield, label: "100% Secure Payments" },
+                  { icon: FiRotateCcw, label: "7-Day Easy Returns" },
                   { icon: FiCheckCircle, label: "Authentic Products" },
+                  { icon: FiZap, label: "Lightning Fast Delivery" },
                 ].map(({ icon: Icon, label }) => (
-                  <div key={label} className="flex items-center gap-1.5 text-white/70 text-xs font-semibold">
+                  <div key={label} className="flex items-center gap-2 text-slate-400 text-xs font-semibold whitespace-nowrap">
                     <Icon className="text-emerald-400 text-sm shrink-0" />
                     <span>{label}</span>
                   </div>
                 ))}
-              </motion.div>
-            </div>
-
-            {/* Scroll indicator */}
-            <motion.div
-              className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-white/40 z-10 pointer-events-none"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.2, duration: 0.6 }}
-            >
-              <span className="text-[9px] uppercase tracking-widest">Scroll</span>
-              <motion.div
-                className="w-px h-7 bg-gradient-to-b from-white/40 to-transparent"
-                animate={{ scaleY: [1, 0.3, 1] }}
-                transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
-              />
+              </div>
             </motion.div>
           </div>
 
