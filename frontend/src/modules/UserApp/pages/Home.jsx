@@ -31,7 +31,7 @@ import heroSlide2 from "../../../../data/hero/slide2.png";
 import heroSlide3 from "../../../../data/hero/slide3.png";
 import heroSlide4 from "../../../../data/hero/slide4.png";
 import stylishWatchImg from "../../../../data/products/stylish watch.png";
-import dwellmartHeroBanner from "../../../../data/hero/dwellmart_hero_fullscreen.jpg";
+import dwellmartHeroBg from "../../../../data/hero/dwellmart_hero_bg.jpg";
 import { getImageUrl, calculateDiscount, getPlaceholderImage } from "../../../shared/utils/helpers";
 import ExperienceSwitcher from "../components/QuickCommerce/ExperienceSwitcher";
 
@@ -629,28 +629,34 @@ const MobileHome = () => {
             className="relative w-full overflow-hidden"
             style={{ height: "100svh", minHeight: "560px", maxHeight: "900px" }}
           >
-            {/* Background Image */}
+            {/* Background: dark green left, image right */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#052e16] via-[#064e3b] to-[#052e16]" />
+
+            {/* Hero photo — positioned to the right */}
             <img
-              src={dwellmartHeroBanner}
-              alt="Dwell Mart – Shop Smarter, Live Better"
-              className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none"
+              src={dwellmartHeroBg}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+              style={{ objectPosition: "60% center" }}
               draggable={false}
               fetchpriority="high"
             />
 
-            {/* Dark overlay gradient — left-heavy so text always readable */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/30 to-black/10 pointer-events-none" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+            {/* Left fade so text area stays clean */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#052e16] via-[#052e16]/80 via-40% to-transparent pointer-events-none" />
+            {/* Bottom fade */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
 
-            {/* Content */}
-            <div className="relative z-10 flex flex-col justify-center h-full px-6 sm:px-10 md:px-16 lg:px-24 pb-16 max-w-3xl">
+            {/* ── Text Content ── */}
+            <div className="relative z-10 flex flex-col justify-center h-full px-6 sm:px-10 md:px-14 lg:px-20 pb-12" style={{ maxWidth: "55%" }}>
 
               {/* Badge */}
               <motion.div
                 initial={{ opacity: 0, y: -12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.1 }}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-400/20 border border-emerald-400/50 backdrop-blur-md text-emerald-300 text-[11px] font-black uppercase tracking-widest mb-4 w-fit"
+                transition={{ duration: 0.45, delay: 0.1 }}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-400/20 border border-emerald-400/40 backdrop-blur-sm text-emerald-300 text-[11px] font-black uppercase tracking-widest mb-5 w-fit"
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span>For Every Home · For Every Business</span>
@@ -658,10 +664,11 @@ const MobileHome = () => {
 
               {/* Headline */}
               <motion.h1
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.55, delay: 0.2 }}
-                className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-tight mb-3 drop-shadow-lg"
+                className="font-black leading-[1.08] mb-4 drop-shadow-md"
+                style={{ fontSize: "clamp(2.2rem, 5vw, 4.5rem)" }}
               >
                 <span className="text-white">Shop Smarter,</span>
                 <br />
@@ -673,9 +680,10 @@ const MobileHome = () => {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.32 }}
-                className="text-sm sm:text-base md:text-lg text-gray-200 font-medium mb-7 max-w-xl leading-relaxed drop-shadow"
+                className="text-gray-300 font-medium mb-8 leading-relaxed"
+                style={{ fontSize: "clamp(0.85rem, 1.5vw, 1.1rem)", maxWidth: "38rem" }}
               >
-                From daily essentials to exciting discoveries,<br />
+                From daily essentials to exciting discoveries —<br className="hidden sm:block" />
                 everything you need is just a click away.
               </motion.p>
 
@@ -684,24 +692,22 @@ const MobileHome = () => {
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.44 }}
-                className="flex flex-wrap items-center gap-3 sm:gap-4"
+                className="flex flex-wrap items-center gap-3"
               >
-                {/* Shop Now */}
                 <button
                   type="button"
                   onClick={() => navigate("/shop")}
-                  className="flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-sm sm:text-base shadow-xl hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
+                  className="flex items-center gap-2 px-7 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-sm shadow-xl shadow-emerald-900/40 hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
                 >
                   <FiShoppingBag className="text-base shrink-0" />
                   <span>Shop Now</span>
-                  <FiArrowRight className="text-sm shrink-0 transition-transform group-hover:translate-x-1" />
+                  <FiArrowRight className="text-sm shrink-0" />
                 </button>
 
-                {/* Explore Deals */}
                 <button
                   type="button"
                   onClick={() => navigate("/new-arrivals")}
-                  className="flex items-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/35 text-white border border-white/50 hover:border-white/80 backdrop-blur-md font-bold text-sm sm:text-base shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
+                  className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/40 hover:border-white/70 backdrop-blur-sm font-bold text-sm shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
                 >
                   <FiZap className="text-base text-emerald-300 shrink-0" />
                   <span>Explore Deals</span>
@@ -713,8 +719,8 @@ const MobileHome = () => {
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ duration: 0.5, delay: 0.6 }}
-                className="hidden sm:flex items-center gap-5 mt-8"
+                transition={{ duration: 0.5, delay: 0.65 }}
+                className="hidden sm:flex flex-wrap items-center gap-4 mt-9 pt-7 border-t border-white/10"
               >
                 {[
                   { icon: FiTruck, label: "Free Delivery" },
@@ -722,8 +728,8 @@ const MobileHome = () => {
                   { icon: FiRotateCcw, label: "Easy Returns" },
                   { icon: FiCheckCircle, label: "Authentic Products" },
                 ].map(({ icon: Icon, label }) => (
-                  <div key={label} className="flex items-center gap-1.5 text-white/80 text-xs font-semibold">
-                    <Icon className="text-emerald-400 text-base shrink-0" />
+                  <div key={label} className="flex items-center gap-1.5 text-white/70 text-xs font-semibold">
+                    <Icon className="text-emerald-400 text-sm shrink-0" />
                     <span>{label}</span>
                   </div>
                 ))}
@@ -732,16 +738,16 @@ const MobileHome = () => {
 
             {/* Scroll indicator */}
             <motion.div
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-white/50 z-10"
+              className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-white/40 z-10 pointer-events-none"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 1, duration: 0.5 }}
+              transition={{ delay: 1.2, duration: 0.6 }}
             >
-              <span className="text-[10px] uppercase tracking-widest font-semibold">Scroll</span>
+              <span className="text-[9px] uppercase tracking-widest">Scroll</span>
               <motion.div
-                className="w-px h-8 bg-gradient-to-b from-white/50 to-transparent"
-                animate={{ scaleY: [1, 0.4, 1] }}
-                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                className="w-px h-7 bg-gradient-to-b from-white/40 to-transparent"
+                animate={{ scaleY: [1, 0.3, 1] }}
+                transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
               />
             </motion.div>
           </div>
