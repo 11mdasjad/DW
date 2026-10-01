@@ -466,7 +466,7 @@ body::-webkit-scrollbar {
   }
 }
 
-/* Continuous automatic moving brand marquee */
+/* Continuous automatic moving brand marquee - smooth, slow & zero-lag GPU optimized */
 @keyframes brandInfiniteMarquee {
   0% {
     transform: translate3d(0, 0, 0);
@@ -479,8 +479,12 @@ body::-webkit-scrollbar {
 .brand-marquee-track {
   display: flex;
   width: max-content;
-  animation: brandInfiniteMarquee 32s linear infinite;
+  animation: brandInfiniteMarquee 68s linear infinite;
   will-change: transform;
+  contain: layout paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .brand-marquee-track:hover,

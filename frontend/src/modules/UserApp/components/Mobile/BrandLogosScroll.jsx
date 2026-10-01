@@ -87,12 +87,12 @@ const BrandLogosScroll = ({ brands = null }) => {
                   className="flex-shrink-0 flex flex-col items-center group cursor-pointer w-22 sm:w-26 md:w-28 select-none transition-transform duration-200"
                 >
                   {/* Round Shape Circular Container for Brand Logo */}
-                  <div className="w-18 h-18 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-white border-2 border-gray-100 shadow-xs group-hover:shadow-xl group-hover:border-amber-400 group-hover:scale-105 p-2.5 sm:p-3 flex items-center justify-center transition-all duration-300 relative overflow-hidden active:scale-95">
+                  <div className="w-18 h-18 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-white border-2 border-gray-200/90 group-hover:border-amber-400 p-2.5 sm:p-3 flex items-center justify-center transition-transform duration-200 ease-out group-hover:scale-105 relative overflow-hidden active:scale-95">
                     {hasValidLogo ? (
                       <img
                         src={brand.logo}
                         alt={brand.name}
-                        className="w-full h-full object-contain rounded-full transition-transform duration-300 group-hover:scale-110"
+                        className="w-full h-full object-contain rounded-full transition-transform duration-200 group-hover:scale-110"
                         onError={(e) => {
                           e.target.style.display = 'none';
                           const fallbackDiv = e.target.parentElement.querySelector('.brand-monogram');
@@ -104,7 +104,7 @@ const BrandLogosScroll = ({ brands = null }) => {
 
                     {/* Circular Monogram Fallback Badge in 100% Round Shape */}
                     <div
-                      className="brand-monogram w-full h-full rounded-full bg-gradient-to-tr from-amber-400 via-amber-300 to-amber-100 text-slate-900 font-black text-xs sm:text-sm md:text-base flex items-center justify-center uppercase tracking-wider shadow-inner"
+                      className="brand-monogram w-full h-full rounded-full bg-gradient-to-tr from-amber-400 via-amber-300 to-amber-100 text-slate-900 font-black text-xs sm:text-sm md:text-base flex items-center justify-center uppercase tracking-wider"
                       style={{ display: hasValidLogo ? 'none' : 'flex' }}
                     >
                       {getBrandInitials(brand.name)}
