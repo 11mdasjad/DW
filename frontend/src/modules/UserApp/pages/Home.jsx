@@ -31,7 +31,7 @@ import heroSlide2 from "../../../../data/hero/slide2.png";
 import heroSlide3 from "../../../../data/hero/slide3.png";
 import heroSlide4 from "../../../../data/hero/slide4.png";
 import stylishWatchImg from "../../../../data/products/stylish watch.png";
-import dwellmartHeroBg from "../../../../data/hero/dwellmart_hero_bg.jpg";
+import dwellmartBanner6x2 from "../../../../data/hero/dwellmart_banner_6x2.jpg";
 import { getImageUrl, calculateDiscount, getPlaceholderImage } from "../../../shared/utils/helpers";
 import ExperienceSwitcher from "../components/QuickCommerce/ExperienceSwitcher";
 
@@ -624,106 +624,78 @@ const MobileHome = () => {
             transform: `translateY(${Math.min(pullDistance, 80)}px)`,
             transition: isPulling ? "none" : "transform 0.3s ease-out",
           }}>
-          {/* ── HERO BANNER — Clean 5:3 White/Gray ── */}
+          {/* ── HERO BANNER — 6:2 Image Banner ── */}
           <div
-            className="relative w-full flex items-center justify-center overflow-hidden"
+            className="relative w-full overflow-hidden"
             style={{
-              aspectRatio: "5 / 3",
-              minHeight: "420px",
-              maxHeight: "660px",
-              background: "linear-gradient(160deg, #ffffff 0%, #f3f4f6 45%, #e5e7eb 100%)",
+              aspectRatio: "6 / 2",
+              minHeight: "300px",
+              maxHeight: "560px",
             }}
           >
-            {/* Subtle background texture */}
-            <div className="pointer-events-none absolute inset-0"
+            {/* Banner image — fills full 6:2 area */}
+            <img
+              src={dwellmartBanner6x2}
+              alt="Dwell Mart — Everything You Need, All in One Place"
+              className="absolute inset-0 w-full h-full select-none pointer-events-none"
+              style={{ objectFit: "cover", objectPosition: "center center" }}
+              draggable={false}
+              fetchpriority="high"
+            />
+
+            {/* Subtle gradient overlay on left — makes buttons pop */}
+            <div
+              className="absolute inset-0 pointer-events-none"
               style={{
-                backgroundImage: "radial-gradient(circle, rgba(0,0,0,0.04) 1px, transparent 1px)",
-                backgroundSize: "28px 28px",
+                background: "linear-gradient(90deg, rgba(255,255,255,0.18) 0%, transparent 55%)",
               }}
             />
 
-            {/* Soft gray accent shape — top right */}
-            <div className="pointer-events-none absolute -top-20 -right-20 w-96 h-96 rounded-full"
-              style={{ background: "radial-gradient(circle, rgba(209,213,219,0.7) 0%, transparent 70%)" }} />
-
-            {/* Soft gray accent shape — bottom left */}
-            <div className="pointer-events-none absolute -bottom-24 -left-16 w-80 h-80 rounded-full"
-              style={{ background: "radial-gradient(circle, rgba(229,231,235,0.9) 0%, transparent 70%)" }} />
-
-            {/* ── Centered Content ── */}
-            <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 max-w-3xl mx-auto">
-
-              {/* Eyebrow label */}
-              <motion.span
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-                className="inline-block mb-5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-[0.16em]"
-                style={{ background: "#f3f4f6", border: "1px solid #d1d5db", color: "#6b7280" }}
+            {/* CTA Buttons — bottom-left, matching the banner's badge row */}
+            <motion.div
+              className="absolute z-10 flex items-center gap-3"
+              style={{ bottom: "8%", left: "3.5%" }}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+            >
+              {/* Shop Now */}
+              <button
+                type="button"
+                onClick={() => navigate("/shop")}
+                className="group flex items-center gap-2 rounded-xl font-black text-white cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:scale-95"
+                style={{
+                  padding: "11px 26px",
+                  fontSize: "clamp(0.82rem, 1.1vw, 0.95rem)",
+                  background: "#111827",
+                  boxShadow: "0 4px 20px rgba(17,24,39,0.35)",
+                }}
               >
-                Dwell Mart — India's Super Store
-              </motion.span>
+                <FiShoppingBag className="text-sm shrink-0" />
+                <span>Shop Now</span>
+                <FiArrowRight className="text-xs shrink-0 transition-transform duration-300 group-hover:translate-x-1" />
+              </button>
 
-              {/* Main advertising line */}
-              <motion.h1
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.55, delay: 0.1 }}
-                className="font-black leading-tight tracking-tight mb-4"
-                style={{ fontSize: "clamp(2rem, 4.5vw, 4rem)", color: "#111827" }}
+              {/* Explore Deals */}
+              <button
+                type="button"
+                onClick={() => navigate("/new-arrivals")}
+                className="group flex items-center gap-2 rounded-xl font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 active:scale-95"
+                style={{
+                  padding: "10px 22px",
+                  fontSize: "clamp(0.82rem, 1.1vw, 0.95rem)",
+                  background: "rgba(255,255,255,0.88)",
+                  border: "1.5px solid rgba(17,24,39,0.18)",
+                  color: "#111827",
+                  backdropFilter: "blur(8px)",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+                }}
               >
-                Everything You Need,{" "}
-                <span style={{ color: "#374151" }}>All in One Place.</span>
-              </motion.h1>
-
-              {/* Subtitle / advertising copy */}
-              <motion.p
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.22 }}
-                className="font-medium leading-relaxed mb-8"
-                style={{ fontSize: "clamp(0.95rem, 1.5vw, 1.1rem)", color: "#6b7280", maxWidth: "34rem" }}
-              >
-                Millions of products · Verified sellers · Fast delivery across India
-              </motion.p>
-
-              {/* CTA Buttons */}
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.45, delay: 0.34 }}
-                className="flex items-center gap-4 flex-wrap justify-center"
-              >
-                {/* Shop Now */}
-                <button
-                  type="button"
-                  onClick={() => navigate("/shop")}
-                  className="group flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-bold text-white cursor-pointer transition-all duration-250 hover:-translate-y-0.5 hover:shadow-xl active:scale-95"
-                  style={{ background: "#111827", fontSize: "0.95rem", boxShadow: "0 4px 18px rgba(17,24,39,0.22)" }}
-                >
-                  <FiShoppingBag className="text-base shrink-0" />
-                  <span>Shop Now</span>
-                  <FiArrowRight className="text-sm shrink-0 transition-transform duration-250 group-hover:translate-x-1" />
-                </button>
-
-                {/* Explore Deals */}
-                <button
-                  type="button"
-                  onClick={() => navigate("/new-arrivals")}
-                  className="group flex items-center gap-2.5 px-7 py-3.5 rounded-xl font-bold cursor-pointer transition-all duration-250 hover:-translate-y-0.5 active:scale-95"
-                  style={{
-                    background: "transparent",
-                    border: "1.5px solid #9ca3af",
-                    color: "#374151",
-                    fontSize: "0.95rem",
-                  }}
-                >
-                  <FiZap className="text-base shrink-0 text-gray-500" />
-                  <span>Explore Deals</span>
-                  <FiArrowRight className="text-sm shrink-0 opacity-50 transition-transform duration-250 group-hover:translate-x-1" />
-                </button>
-              </motion.div>
-            </div>
+                <FiZap className="text-sm shrink-0" style={{ color: "#d97706" }} />
+                <span>Explore Deals</span>
+                <FiArrowRight className="text-xs shrink-0 opacity-50 transition-transform duration-300 group-hover:translate-x-1" />
+              </button>
+            </motion.div>
           </div>
 
 
