@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, matchPath, useNavigate } from "react-router-dom";
-import { FiHeart, FiTruck, FiRotateCcw, FiShield, FiCheckCircle, FiUsers, FiBox, FiGrid, FiLock } from "react-icons/fi";
+import { FiHeart, FiTruck, FiRotateCcw, FiShield, FiCheckCircle, FiUsers, FiBox, FiGrid, FiLock, FiShoppingBag, FiArrowRight, FiZap, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import MobileLayout from "../components/Layout/MobileLayout";
 import ProductCard from "../../../shared/components/ProductCard";
 import AnimatedBanner from "../components/Mobile/AnimatedBanner";
@@ -214,6 +214,8 @@ const MobileHome = () => {
     "PREMIUM",
     "Exclusive Collection",
     "Shop Now",
+    "Explore Deals",
+    "Elevate Your Style",
     "Most Popular",
     "See All",
     "Flash Sale",
@@ -621,101 +623,153 @@ const MobileHome = () => {
             transform: `translateY(${Math.min(pullDistance, 80)}px)`,
             transition: isPulling ? "none" : "transform 0.3s ease-out",
           }}>
-          {/* Hero Banner */}
-          <div className="px-4 py-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div
-                className="relative w-full h-48 md:h-80 lg:h-[400px] xl:h-[450px] rounded-xl md:rounded-2xl overflow-hidden lg:col-span-2"
-                data-carousel
-                onTouchStart={onTouchStart}
-                onTouchMove={onTouchMove}
-                onTouchEnd={onTouchEnd}
-                style={{ touchAction: "pan-y", userSelect: "none" }}>
-                {/* Slider Container - All slides in a row */}
-                <motion.div
-                  className="flex h-full"
-                  style={{
-                    width: `${slides.length * 100}%`,
-                    height: "100%",
-                  }}
-                  animate={{
-                    x:
-                      dragOffset !== 0
-                        ? `calc(-${currentSlide * (100 / slides.length)
-                        }% - ${dragOffset}px)`
-                        : `-${currentSlide * (100 / slides.length)}%`,
-                  }}
-                  transition={{
-                    duration: dragOffset !== 0 ? 0 : 0.6,
-                    ease: [0.25, 0.46, 0.45, 0.94], // Smooth easing
-                    type: "tween",
-                  }}>
-                  {slides.map((slide, index) => (
-                    <div
-                      key={index}
-                      className="flex-shrink-0 relative h-full overflow-hidden"
-                      onClick={() => handleSlideClick(slide)}
-                      style={{
-                        width: `${100 / slides.length}%`,
-                        height: "100%",
-                        cursor: slide?.link ? "pointer" : "default",
-                      }}>
-                      <LazyImage
-                        src={slide.image}
-                        alt={slide.title || `Slide ${index + 1}`}
-                        className="w-full h-full object-cover pointer-events-none select-none"
-                        draggable={false}
-                        onError={(e) => {
-                          e.target.src = getPlaceholderImage(400, 200, `Slide ${index + 1}`);
-                        }}
-                      />
-                    </div>
-                  ))}
-                </motion.div>
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-10 pointer-events-none">
-                  {slides.map((_, index) => (
-                    <button
-                      key={index}
-                      onClick={() => {
-                        setCurrentSlide(index);
-                        setAutoSlidePaused(true);
-                        setTimeout(() => setAutoSlidePaused(false), 2000);
+          {/* Full-Width Hero Banner */}
+          <div className="px-3 sm:px-6 py-3 sm:py-4">
+            <div
+              className="relative w-full h-72 sm:h-96 md:h-[440px] lg:h-[480px] xl:h-[520px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-gray-800/40 bg-gray-950 group"
+              data-carousel
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              style={{ touchAction: "pan-y", userSelect: "none" }}
+            >
+              {/* Slider Track Container */}
+              <motion.div
+                className="flex h-full"
+                style={{
+                  width: `${slides.length * 100}%`,
+                  height: "100%",
+                }}
+                animate={{
+                  x:
+                    dragOffset !== 0
+                      ? `calc(-${currentSlide * (100 / slides.length)}% - ${dragOffset}px)`
+                      : `-${currentSlide * (100 / slides.length)}%`,
+                }}
+                transition={{
+                  duration: dragOffset !== 0 ? 0 : 0.6,
+                  ease: [0.25, 0.46, 0.45, 0.94],
+                  type: "tween",
+                }}
+              >
+                {slides.map((slide, index) => (
+                  <div
+                    key={index}
+                    className="flex-shrink-0 relative h-full overflow-hidden"
+                    onClick={() => handleSlideClick(slide)}
+                    style={{
+                      width: `${100 / slides.length}%`,
+                      height: "100%",
+                      cursor: slide?.link ? "pointer" : "default",
+                    }}
+                  >
+                    <LazyImage
+                      src={slide.image}
+                      alt={slide.title || `Slide ${index + 1}`}
+                      className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-700 group-hover:scale-105"
+                      draggable={false}
+                      onError={(e) => {
+                        e.target.src = getPlaceholderImage(1200, 600, `Slide ${index + 1}`);
                       }}
-                      className={`h-1.5 rounded-full transition-all pointer-events-auto ${index === currentSlide
-                        ? "bg-white w-6"
-                        : "bg-white/50 w-1.5"
-                        }`}
                     />
-                  ))}
+                  </div>
+                ))}
+              </motion.div>
+
+              {/* Ambient Gradients to ensure text and buttons stand out vibrantly */}
+              <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent pointer-events-none z-10" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none z-10" />
+
+              {/* Hero Floating Content & Action Buttons */}
+              <div className="absolute inset-0 z-20 flex flex-col justify-end sm:justify-center p-5 sm:p-8 md:p-12 lg:p-16 max-w-2xl pointer-events-none">
+                {/* Floating Badge */}
+                <div className="inline-flex items-center gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-amber-400/20 border border-amber-400/50 backdrop-blur-md text-amber-300 text-[10px] sm:text-xs font-black uppercase tracking-wider mb-2 sm:mb-3 w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span>{t("Exclusive Collection")}</span>
+                </div>
+
+                {/* Main Heading */}
+                <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight drop-shadow-md leading-tight mb-2">
+                  {t("Elevate Your Style")}
+                </h1>
+
+                {/* Subtitle */}
+                <p className="text-xs sm:text-sm md:text-base text-gray-200 font-medium mb-5 sm:mb-7 max-w-lg drop-shadow line-clamp-2 sm:line-clamp-none">
+                  {t("Shop verified premier brands, exclusive wholesale deals & lightning-fast delivery.")}
+                </p>
+
+                {/* Two Action Buttons: Shop Now and Explore Deals */}
+                <div className="flex items-center gap-3 sm:gap-4 pointer-events-auto flex-wrap sm:flex-nowrap">
+                  {/* 1. Shop Now -> navigates to /shop */}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/shop")}
+                    className="px-5 sm:px-8 py-2.5 sm:py-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 active:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm flex items-center gap-2 shadow-lg hover:shadow-amber-400/30 transition-all transform hover:-translate-y-0.5 active:scale-95 group/btn cursor-pointer uppercase tracking-wider whitespace-nowrap"
+                  >
+                    <FiShoppingBag className="text-sm sm:text-base shrink-0" />
+                    <span>{t("Shop Now")}</span>
+                    <FiArrowRight className="text-sm shrink-0 transition-transform group-hover/btn:translate-x-1" />
+                  </button>
+
+                  {/* 2. Explore Deals -> navigates to /new-arrivals */}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/new-arrivals")}
+                    className="px-5 sm:px-7 py-2.5 sm:py-3.5 rounded-xl bg-white/20 hover:bg-white/30 active:bg-white/40 text-white border border-white/40 hover:border-white/70 backdrop-blur-md font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all transform hover:-translate-y-0.5 active:scale-95 group/deal cursor-pointer whitespace-nowrap"
+                  >
+                    <FiZap className="text-sm sm:text-base text-amber-300 group-hover/deal:scale-110 transition-transform shrink-0" />
+                    <span>{t("Explore Deals")}</span>
+                  </button>
                 </div>
               </div>
 
-              {/* Side Banner for Large Screens */}
-              <div className="hidden lg:block lg:col-span-1 h-[400px] xl:h-[450px] rounded-2xl overflow-hidden relative bg-gray-900 group">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/90 z-10" />
-                <LazyImage
-                  src={sideBanner?.image || stylishWatchImg}
-                  alt={sideBanner?.title || "Premium Watch"}
-                  className="w-full h-full object-contain p-8 group-hover:scale-110 transition-transform duration-700"
-                  onError={(e) => {
-                    e.target.src = getPlaceholderImage(400, 400, "Premium Watch");
-                  }}
-                />
-                <div className="absolute inset-x-0 bottom-0 p-8 z-20 flex flex-col items-center text-center">
-                  <span className="text-yellow-400 font-bold text-3xl mb-2 tracking-wider drop-shadow-lg">
-                    {t(sideBanner?.title || "PREMIUM")}
-                  </span>
-                  <p className="text-gray-300 text-sm mb-6 font-medium">
-                    {t(sideBanner?.subtitle || "Exclusive Collection")}
-                  </p>
+              {/* Prev / Next Slide Arrows (Desktop Hover) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
+                  setAutoSlidePaused(true);
+                  setTimeout(() => setAutoSlidePaused(false), 2500);
+                }}
+                className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 hover:bg-black/70 text-white border border-white/20 items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                aria-label="Previous slide"
+              >
+                <FiChevronLeft className="text-xl" />
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentSlide((prev) => (prev + 1) % slides.length);
+                  setAutoSlidePaused(true);
+                  setTimeout(() => setAutoSlidePaused(false), 2500);
+                }}
+                className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 hover:bg-black/70 text-white border border-white/20 items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95"
+                aria-label="Next slide"
+              >
+                <FiChevronRight className="text-xl" />
+              </button>
+
+              {/* Slide Indicators / Dots */}
+              <div className="absolute bottom-4 right-4 sm:right-8 flex gap-2 z-20 pointer-events-auto">
+                {slides.map((_, index) => (
                   <button
-                    type="button"
-                    onClick={() => handleBannerNavigation(sideBanner?.link || "/offers")}
-                    className="bg-white text-gray-900 font-bold py-3.5 px-10 rounded-xl w-full hover:bg-gray-100 transition-all transform hover:-translate-y-1 shadow-lg hover:shadow-xl uppercase tracking-widest text-sm"
-                  >
-                    {t("Shop Now")}
-                  </button>
-                </div>
+                    key={index}
+                    onClick={() => {
+                      setCurrentSlide(index);
+                      setAutoSlidePaused(true);
+                      setTimeout(() => setAutoSlidePaused(false), 2000);
+                    }}
+                    className={`h-2 rounded-full transition-all cursor-pointer ${
+                      index === currentSlide
+                        ? "bg-amber-400 w-7 shadow-sm"
+                        : "bg-white/50 hover:bg-white/80 w-2"
+                    }`}
+                    aria-label={`Slide ${index + 1}`}
+                  />
+                ))}
               </div>
             </div>
           </div>

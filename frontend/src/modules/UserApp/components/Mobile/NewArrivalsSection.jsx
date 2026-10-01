@@ -19,6 +19,7 @@ const NewArrivalsSection = ({ products = [], title = "New Arrivals", subtitle = 
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
       whileHover={{ scale: 1.005 }}
+      id="new-arrivals"
       className="relative mx-2 sm:mx-4 my-4 sm:my-6 rounded-card overflow-hidden shadow-card border-2 border-borderToken-goldAccent bg-gradient-to-br from-zinc-950 via-slate-900 to-black text-white"
     >
       {/* Decorative Background Pattern */}
