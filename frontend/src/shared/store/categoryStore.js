@@ -221,8 +221,19 @@ export const useCategoryStore = create(
       },
 
       // Get root categories
-      getRootCategories: () => {
-        return get().categories.filter((cat) => !cat.parentId);
+      getRootCategories: (experience) => {
+        const state = get();
+        const effectiveExp = experience || (state.loadedExperience !== 'all' ? state.loadedExperience : null);
+        return state.categories.filter((cat) => {
+          if (cat.parentId) return false;
+          if (effectiveExp) {
+            const exps = Array.isArray(cat.supportedExperiences)
+              ? cat.supportedExperiences
+              : [cat.experience || EXPERIENCES.MARKETPLACE];
+            return exps.includes(effectiveExp);
+          }
+          return true;
+        });
       },
 
       // Reorder categories

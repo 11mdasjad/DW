@@ -43,10 +43,20 @@ const RetailCategoriesPage = () => {
 
   // Root categories sorted by display order
   const rootCategories = useMemo(() => {
-    return getRootCategories()
-      .filter((cat) => cat.isActive !== false)
+    return categories
+      .filter((cat) => !cat.parentId && cat.isActive !== false)
+      .filter((cat) => {
+        const exps = Array.isArray(cat.supportedExperiences)
+          ? cat.supportedExperiences
+          : [cat.experience || EXPERIENCES.MARKETPLACE];
+        return (
+          exps.includes(EXPERIENCES.MARKETPLACE) ||
+          exps.includes("retail") ||
+          exps.includes("b2c")
+        );
+      })
       .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
-  }, [getRootCategories]);
+  }, [categories]);
 
   // Subcategories mapping
   const subcategoryMap = useMemo(() => {

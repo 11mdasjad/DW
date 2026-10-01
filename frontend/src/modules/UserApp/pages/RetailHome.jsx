@@ -238,10 +238,21 @@ const RetailHome = () => {
     };
   }, [normalizeProduct]);
 
-  // Root categories
+  // Root categories strictly for retail / marketplace
   const rootCategories = useMemo(() => {
-    return getRootCategories().filter((cat) => cat.isActive !== false);
-  }, [getRootCategories]);
+    return categories
+      .filter((cat) => !cat.parentId && cat.isActive !== false)
+      .filter((cat) => {
+        const exps = Array.isArray(cat.supportedExperiences)
+          ? cat.supportedExperiences
+          : [cat.experience || EXPERIENCES.MARKETPLACE];
+        return (
+          exps.includes(EXPERIENCES.MARKETPLACE) ||
+          exps.includes("retail") ||
+          exps.includes("b2c")
+        );
+      });
+  }, [categories]);
 
   return (
     <PageTransition>

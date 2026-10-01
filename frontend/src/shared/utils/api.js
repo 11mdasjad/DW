@@ -199,7 +199,9 @@ api.interceptors.request.use(
     // Tell the API which shopping experience the customer is in. The server
     // defaults to marketplace, so sending this is additive and safe. An explicit
     // ?experience= param on the request always wins.
-    if (!config.params?.experience) {
+    if (config.params?.experience) {
+      config.headers['X-Experience'] = config.params.experience;
+    } else {
       config.headers['X-Experience'] = getExperience();
     }
     // Workspace is URL-authoritative and therefore tab-safe. The header is

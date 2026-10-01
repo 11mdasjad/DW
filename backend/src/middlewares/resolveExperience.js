@@ -13,7 +13,7 @@ import { normalizeExperience } from '../constants/experiences.js';
  */
 export const resolveExperience = (req, res, next) => {
     req.experience = normalizeExperience(
-        req.get('x-experience') ?? req.query?.experience
+        req.query?.experience ?? req.get('x-experience')
     );
     next();
 };

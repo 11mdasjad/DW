@@ -135,6 +135,12 @@ const WholesaleHome = () => {
   const rootCategories = useMemo(() => {
     return storeCategories
       .filter((c) => (!c.parentId && !c.parent) && c.isActive !== false)
+      .filter((cat) => {
+        const exps = Array.isArray(cat.supportedExperiences)
+          ? cat.supportedExperiences
+          : [cat.experience || EXPERIENCES.WHOLESALE];
+        return exps.includes(EXPERIENCES.WHOLESALE) || exps.includes("b2b");
+      })
       .sort((a, b) => (a.order || 0) - (b.order || 0));
   }, [storeCategories]);
 

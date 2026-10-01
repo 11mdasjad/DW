@@ -54,5 +54,5 @@ export const normalizeExperience = (raw) => {
 export const getRequestExperience = (req) => {
     if (req?.experience) return req.experience;
     const header = typeof req?.get === 'function' ? req.get('x-experience') : undefined;
-    return normalizeExperience(header ?? req?.headers?.['x-experience'] ?? req?.query?.experience);
+    return normalizeExperience(req?.query?.experience ?? header ?? req?.headers?.['x-experience']);
 };

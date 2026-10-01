@@ -45,12 +45,13 @@ const RouteWrapper = ({ children }) => {
     }
 
     const currentExp = getExperience();
-    const loadedExp = useCategoryStore.getState().loadedExperience;
+    const storeState = useCategoryStore.getState();
+    const loadedExp = storeState.loadedExperience;
 
-    if (currentExp !== targetExp || (loadedExp && loadedExp !== targetExp && loadedExp !== 'all')) {
+    if (currentExp !== targetExp || (loadedExp && loadedExp !== targetExp && loadedExp !== 'all') || storeState.categories.length === 0) {
       setLocalExperience(targetExp);
       useExperienceStore.getState().setExperience(targetExp);
-      useCategoryStore.getState().initialize(targetExp);
+      storeState.initialize(targetExp);
     }
   }, [location.pathname, location.search]);
 
