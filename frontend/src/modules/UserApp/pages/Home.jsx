@@ -643,6 +643,31 @@ const MobileHome = () => {
               fetchpriority="high"
             />
 
+            {/* ── Cover the wrong AI logo top-left + overlay real DM logo ── */}
+            {/* Cream patch — matches banner background, hides the blue house icon */}
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                top: 0,
+                left: 0,
+                width: "22%",
+                height: "38%",
+                background: "linear-gradient(135deg, #f5f0e8 60%, transparent 100%)",
+              }}
+            />
+            {/* Real Dwell Mart logo overlay */}
+            <div
+              className="absolute"
+              style={{ top: "4%", left: "1.8%", width: "clamp(120px, 14vw, 220px)" }}
+            >
+              <img
+                src="/logo.png"
+                alt="Dwell Mart"
+                className="w-full h-auto object-contain select-none pointer-events-none"
+                draggable={false}
+              />
+            </div>
+
             {/* CTA buttons — overlaid bottom-left, above the image's badge row */}
             <motion.div
               className="absolute z-10 flex items-center gap-3"
