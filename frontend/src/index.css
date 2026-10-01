@@ -86,7 +86,15 @@ body {
   scrollbar-width: none;
 }
 
-button, input, select, textarea, table, th, td, optgroup, option {
+button,
+input,
+select,
+textarea,
+table,
+th,
+td,
+optgroup,
+option {
   font-family: inherit;
 }
 
@@ -362,12 +370,10 @@ body::-webkit-scrollbar {
   }
 
   .shimmer {
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.4) 50%,
-      rgba(255, 255, 255, 0) 100%
-    );
+    background: linear-gradient(90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.4) 50%,
+        rgba(255, 255, 255, 0) 100%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
@@ -376,6 +382,7 @@ body::-webkit-scrollbar {
     0% {
       background-position: -200% 0;
     }
+
     100% {
       background-position: 200% 0;
     }
@@ -384,6 +391,7 @@ body::-webkit-scrollbar {
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
@@ -471,6 +479,7 @@ body::-webkit-scrollbar {
   0% {
     transform: translate3d(0, 0, 0);
   }
+
   100% {
     transform: translate3d(-50%, 0, 0);
   }
@@ -479,7 +488,7 @@ body::-webkit-scrollbar {
 .brand-marquee-track {
   display: flex;
   width: max-content;
-  animation: brandInfiniteMarquee var(--marquee-duration, 900s) linear infinite;
+  animation: brandInfiniteMarquee var(--marquee-duration, 1200s) linear infinite;
   will-change: transform;
   contain: layout paint;
   backface-visibility: hidden;
@@ -492,5 +501,3 @@ body::-webkit-scrollbar {
 .brand-marquee-track:focus-within {
   animation-play-state: paused;
 }
-
-
