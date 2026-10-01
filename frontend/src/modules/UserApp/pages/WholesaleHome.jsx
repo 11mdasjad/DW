@@ -136,7 +136,7 @@ const WholesaleHome = () => {
   useEffect(() => {
     const fetchBanners = async () => {
       try {
-        const res = await api.get("/banners");
+        const res = await api.get("/banners", { params: { type: "wholesale" } });
         const list = res?.data || res || [];
         if (Array.isArray(list)) {
           setBanners(list.filter((b) => b.isActive !== false && (b.type === "wholesale" || b.experience === "wholesale")));

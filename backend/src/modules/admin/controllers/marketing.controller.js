@@ -35,6 +35,11 @@ const isSafeInternalPath = (value) => String(value || '').trim().startsWith('/')
 const KNOWN_BANNER_INTERNAL_ROUTE_PATTERNS = [
     /^\/$/,
     /^\/home$/,
+    /^\/retail$/,
+    /^\/wholesale$/,
+    /^\/wholesale\/categories$/,
+    /^\/retail\/categories$/,
+    /^\/shop$/,
     /^\/search$/,
     /^\/offers$/,
     /^\/daily-deals$/,

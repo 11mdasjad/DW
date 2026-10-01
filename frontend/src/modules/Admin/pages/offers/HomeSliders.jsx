@@ -23,8 +23,11 @@ const HomeSliders = () => {
     () =>
       (banners || [])
         .filter((banner) => {
-          if (selectedBannerType === "home_slider") {
-            return banner.type === "home_slider" || banner.type === "hero";
+          if (selectedBannerType === "home_slider" || selectedBannerType === "retail") {
+            return banner.type === "home_slider" || banner.type === "hero" || banner.type === "retail";
+          }
+          if (selectedBannerType === "wholesale") {
+            return banner.type === "wholesale";
           }
           return banner.type === selectedBannerType;
         })
@@ -205,11 +208,12 @@ const HomeSliders = () => {
             value={selectedBannerType}
             onChange={(e) => setSelectedBannerType(e.target.value)}
             options={[
-              { value: "home_slider", label: "Home Sliders" },
-              { value: "quick_commerce", label: "Quick Commerce Sliders" },
-              { value: "side_banner", label: "Side Banners" },
+              { value: "home_slider", label: "🛍️ Retail Store Sliders (B2C)" },
+              { value: "wholesale", label: "🏭 Wholesale Hub Sliders (B2B)" },
+              { value: "quick_commerce", label: "⚡ Quick Commerce Sliders" },
+              { value: "side_banner", label: "📐 Side Banners" },
             ]}
-            className="min-w-[170px]"
+            className="min-w-[210px]"
           />
           <button
             onClick={() =>
@@ -326,9 +330,10 @@ const HomeSliders = () => {
                       })
                     }
                     options={[
-                      { value: "home_slider", label: "Home Slider" },
-                      { value: "quick_commerce", label: "Quick Commerce Banner" },
-                      { value: "side_banner", label: "Side Banner (Home Right)" },
+                      { value: "home_slider", label: "🛍️ Retail Store Slider (B2C)" },
+                      { value: "wholesale", label: "🏭 Wholesale Hub Slider (B2B)" },
+                      { value: "quick_commerce", label: "⚡ Quick Commerce Banner" },
+                      { value: "side_banner", label: "📐 Side Banner (Home Right)" },
                     ]}
                     required
                   />

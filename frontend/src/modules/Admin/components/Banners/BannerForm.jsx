@@ -205,12 +205,14 @@ const BannerForm = ({ banner, onClose, onSave }) => {
                       onChange={handleChange}
                       required
                       options={[
-                        { value: "home_slider", label: "Home Slider" },
-                        { value: "quick_commerce", label: "Quick Commerce Banner" },
-                        { value: "festival_offer", label: "Festival Offer Banner" },
+                        { value: "retail", label: "🛍️ Retail Store Banner (B2C Homepage)" },
+                        { value: "wholesale", label: "🏭 Wholesale Hub Banner (B2B Homepage)" },
+                        { value: "home_slider", label: "🖼️ Main Hero Slider" },
+                        { value: "quick_commerce", label: "⚡ Quick Commerce Banner (10-Min)" },
+                        { value: "festival_offer", label: "🎉 Festival Offer Banner" },
+                        { value: "promotional", label: "📢 Promotional Banner" },
+                        { value: "side_banner", label: "📐 Side Banner (Right Rail)" },
                         { value: "banner", label: "Generic Banner" },
-                        { value: "promotional", label: "Promotional Banner" },
-                        { value: "side_banner", label: "Side Banner (Home Right)" },
                       ]}
                     />
                   </div>

@@ -1709,7 +1709,7 @@ router.post('/shipping/estimate', asyncHandler(async (req, res) => {
 
 // GET /api/banners
 router.get('/banners', marketingCache, asyncHandler(async (req, res) => {
-    const { type } = req.query;
+    const { type, experience } = req.query;
     const now = new Date();
     const filter = {
         isActive: true,
@@ -1718,13 +1718,22 @@ router.get('/banners', marketingCache, asyncHandler(async (req, res) => {
             { $or: [{ endDate: null }, { endDate: { $exists: false } }, { endDate: { $gte: now } }] }
         ]
     };
+
+    const reqExp = experience || req.headers['x-experience'];
     if (type) {
-        if (type === 'home_slider' || type === 'hero') {
-            filter.type = { $in: ['home_slider', 'hero'] };
+        if (type === 'retail' || type === 'home_slider' || type === 'hero') {
+            filter.type = { $in: ['retail', 'home_slider', 'hero'] };
         } else {
             filter.type = type;
         }
+    } else if (reqExp === 'wholesale') {
+        filter.type = 'wholesale';
+    } else if (reqExp === 'quick_commerce') {
+        filter.type = 'quick_commerce';
+    } else if (reqExp === 'marketplace') {
+        filter.type = { $in: ['retail', 'home_slider', 'hero'] };
     }
+
     const banners = await Banner.find(filter).sort({ order: 1 }).lean();
     res.status(200).json(new ApiResponse(200, banners, 'Banners fetched.'));
 }));

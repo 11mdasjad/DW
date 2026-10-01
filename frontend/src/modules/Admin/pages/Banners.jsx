@@ -43,8 +43,12 @@ const Banners = () => {
 
         const matchesType =
           selectedType === 'all' ||
-          (selectedType === 'home_slider'
-            ? banner.type === 'home_slider' || banner.type === 'hero'
+          (selectedType === 'retail'
+            ? banner.type === 'retail' || banner.type === 'home_slider' || banner.type === 'hero'
+            : selectedType === 'wholesale'
+            ? banner.type === 'wholesale'
+            : selectedType === 'home_slider'
+            ? banner.type === 'home_slider' || banner.type === 'hero' || banner.type === 'retail'
             : banner.type === selectedType);
 
         const matchesStatus =
@@ -153,6 +157,35 @@ const Banners = () => {
         </button>
       </div>
 
+      {/* Storefront Navigation Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
+        {[
+          { id: 'all', label: 'All Banners', count: banners.length },
+          { id: 'retail', label: '🛍️ Retail Store (B2C)', count: banners.filter(b => b.type === 'retail' || b.type === 'home_slider' || b.type === 'hero').length },
+          { id: 'wholesale', label: '🏭 Wholesale Hub (B2B)', count: banners.filter(b => b.type === 'wholesale').length },
+          { id: 'quick_commerce', label: '⚡ Quick Commerce', count: banners.filter(b => b.type === 'quick_commerce').length },
+          { id: 'promotional', label: '📢 Promotional & Offers', count: banners.filter(b => b.type === 'promotional' || b.type === 'festival_offer').length },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setSelectedType(tab.id)}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+              selectedType === tab.id
+                ? 'bg-amber-400 text-black shadow-sm font-extrabold ring-2 ring-amber-400/50'
+                : 'bg-white text-gray-600 hover:text-gray-900 border border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <span>{tab.label}</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              selectedType === tab.id ? 'bg-black/15 text-black' : 'bg-gray-100 text-gray-500'
+            }`}>
+              {tab.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
       {/* Filters */}
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -174,6 +207,8 @@ const Banners = () => {
             onChange={(e) => setSelectedType(e.target.value)}
             options={[
               { value: 'all', label: 'All Types' },
+              { value: 'retail', label: '🛍️ Retail Store (B2C)' },
+              { value: 'wholesale', label: '🏭 Wholesale Hub (B2B)' },
               { value: 'home_slider', label: 'Home Sliders' },
               { value: 'quick_commerce', label: 'Quick Commerce Banners' },
               { value: 'festival_offer', label: 'Festival Offer Banners' },
@@ -181,7 +216,7 @@ const Banners = () => {
               { value: 'promotional', label: 'Promotional Banners' },
               { value: 'side_banner', label: 'Side Banners' },
             ]}
-            className="min-w-[140px]"
+            className="min-w-[170px]"
           />
 
           {/* Status Filter */}
@@ -246,18 +281,22 @@ const Banners = () => {
                         </Badge>
                       </div>
                       <div className="absolute top-2 left-2">
-                        <Badge variant="info">
-                          {banner.type === 'quick_commerce'
-                            ? 'Quick Commerce'
-                            : (banner.type === 'home_slider' || banner.type === 'hero')
-                              ? 'Slider'
-                              : banner.type === 'promotional'
-                                ? 'Promo'
-                                : banner.type === 'side_banner'
-                                  ? 'Side'
-                                  : banner.type === 'festival_offer'
-                                    ? 'Festival'
-                                    : 'Banner'}
+                        <Badge variant={banner.type === 'wholesale' ? 'warning' : banner.type === 'retail' || banner.type === 'home_slider' || banner.type === 'hero' ? 'primary' : 'info'}>
+                          {banner.type === 'retail'
+                            ? '🛍️ Retail (B2C)'
+                            : banner.type === 'wholesale'
+                              ? '🏭 Wholesale (B2B)'
+                              : banner.type === 'quick_commerce'
+                                ? '⚡ Quick Commerce'
+                                : (banner.type === 'home_slider' || banner.type === 'hero')
+                                  ? '🛍️ Retail Slider'
+                                  : banner.type === 'promotional'
+                                    ? 'Promo'
+                                    : banner.type === 'side_banner'
+                                      ? 'Side'
+                                      : banner.type === 'festival_offer'
+                                        ? 'Festival'
+                                        : 'Banner'}
                         </Badge>
                       </div>
                     </div>

@@ -131,10 +131,11 @@ const RetailHome = () => {
   useEffect(() => {
     const fetchBanners = async () => {
       try {
-        const res = await api.get("/banners");
+        const res = await api.get("/banners", { params: { type: "retail" } });
         const list = res?.data || res || [];
         if (Array.isArray(list)) {
-          setBanners(list.filter((b) => b.isActive !== false));
+          const retailOnly = list.filter((b) => b.isActive !== false && (b.type === "retail" || b.type === "home_slider" || b.type === "hero" || !b.type));
+          setBanners(retailOnly);
         }
       } catch {
         setBanners([]);
