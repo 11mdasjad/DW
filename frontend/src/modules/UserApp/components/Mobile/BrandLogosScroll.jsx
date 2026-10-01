@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { getCatalogBrands } from '../../data/catalogData';
 
 const getBrandInitials = (name) => {
@@ -11,24 +12,24 @@ const getBrandInitials = (name) => {
 
 const BrandLogosScroll = ({ brands = null }) => {
   const navigate = useNavigate();
+  const scrollRef = useRef(null);
 
   const fallbackBrands = getCatalogBrands();
   const baseBrands = Array.isArray(brands) && brands.length > 0
     ? brands
     : fallbackBrands;
 
-  // Build a continuous duplicated list for seamless, infinite CSS transform marquee
-  let uniqueList = [...baseBrands];
-  while (uniqueList.length < 12 && baseBrands.length > 0) {
-    uniqueList = [...uniqueList, ...baseBrands];
-  }
-  // Exactly 2 equal halves for the 0% -> -50% loop
-  const marqueeBrands = [...uniqueList, ...uniqueList];
-
   const handleBrandClick = (brand) => {
     const target = brand.id || brand._id || brand.name;
     if (target) {
       navigate(`/brand/${encodeURIComponent(target)}`);
+    }
+  };
+
+  const handleScroll = (direction) => {
+    if (scrollRef.current) {
+      const scrollAmount = direction === 'left' ? -320 : 320;
+      scrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
 
@@ -42,7 +43,7 @@ const BrandLogosScroll = ({ brands = null }) => {
         <div className="flex items-center justify-between mb-4 sm:mb-5">
           <div>
             <div className="flex items-center gap-2">
-              <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
               <h2 className="text-lg sm:text-2xl font-black text-gray-900 tracking-tight">
                 Top Brands
               </h2>
@@ -52,11 +53,31 @@ const BrandLogosScroll = ({ brands = null }) => {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Scroll Navigation Arrows */}
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleScroll('left')}
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-gray-200 hover:border-amber-400 bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs active:scale-95"
+                aria-label="Scroll left"
+              >
+                <FiChevronLeft className="text-sm sm:text-base" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleScroll('right')}
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-gray-200 hover:border-amber-400 bg-white hover:bg-amber-50 text-gray-700 hover:text-amber-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs active:scale-95"
+                aria-label="Scroll right"
+              >
+                <FiChevronRight className="text-sm sm:text-base" />
+              </button>
+            </div>
+
             {/* See All link */}
             <button
               onClick={() => navigate('/brands')}
-              className="text-xs sm:text-sm font-bold text-amber-500 hover:text-amber-600 flex items-center gap-1 transition-colors group cursor-pointer"
+              className="text-xs sm:text-sm font-bold text-amber-500 hover:text-amber-600 flex items-center gap-1 transition-colors group cursor-pointer ml-1"
             >
               <span>See All</span>
               <span className="transition-transform group-hover:translate-x-1">&rarr;</span>
@@ -64,18 +85,15 @@ const BrandLogosScroll = ({ brands = null }) => {
           </div>
         </div>
 
-        {/* Marquee Viewport with subtle edge gradient fades */}
-        <div className="relative w-full overflow-hidden py-1">
-          {/* Left & Right Subtle Fade Overlays for seamless edge transition */}
-          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 sm:w-16 bg-gradient-to-r from-white via-white/80 to-transparent z-10" />
-          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 sm:w-16 bg-gradient-to-l from-white via-white/80 to-transparent z-10" />
-
-          {/* Continuous Automatic Hardware-Accelerated Marquee Track */}
+        {/* Swipeable / Scrollable Brands Viewport */}
+        <div className="relative w-full py-1">
+          {/* Static Swipeable & Scrollable Row (Auto-scroll stopped) */}
           <div
-            className="brand-marquee-track flex gap-4 sm:gap-6 md:gap-8 items-center py-2"
-            style={{ '--marquee-duration': '1200s' }}
+            ref={scrollRef}
+            className="flex gap-4 sm:gap-6 md:gap-8 items-center py-2 overflow-x-auto scrollbar-hide scroll-smooth select-none px-1"
+            style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            {marqueeBrands.map((brand, index) => {
+            {baseBrands.map((brand, index) => {
               const uniqueKey = `${brand.id || brand._id || brand.name}-${index}`;
               const hasValidLogo = Boolean(
                 brand.logo &&
@@ -87,10 +105,10 @@ const BrandLogosScroll = ({ brands = null }) => {
                 <div
                   key={uniqueKey}
                   onClick={() => handleBrandClick(brand)}
-                  className="flex-shrink-0 flex flex-col items-center group cursor-pointer w-22 sm:w-26 md:w-28 select-none transition-transform duration-200"
+                  className="flex-shrink-0 flex flex-col items-center group cursor-pointer w-20 sm:w-24 md:w-26 select-none transition-transform duration-200"
                 >
                   {/* Round Shape Circular Container for Brand Logo */}
-                  <div className="w-18 h-18 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-white border-2 border-gray-200/90 group-hover:border-amber-400 p-2.5 sm:p-3 flex items-center justify-center transition-transform duration-200 ease-out group-hover:scale-105 relative overflow-hidden active:scale-95">
+                  <div className="w-18 h-18 sm:w-20 sm:h-20 md:w-22 md:h-22 rounded-full bg-white border-2 border-gray-200/90 group-hover:border-amber-400 p-2.5 sm:p-3 flex items-center justify-center transition-transform duration-200 ease-out group-hover:scale-105 relative overflow-hidden active:scale-95 shadow-2xs">
                     {hasValidLogo ? (
                       <img
                         src={brand.logo}
