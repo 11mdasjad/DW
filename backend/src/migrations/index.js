@@ -1,0 +1,46 @@
+/**
+ * Migration registry.
+ *
+ * Ordered by id. Add new migrations here; the runner sorts by id, so the
+ * numeric prefix is the execution order.
+ */
+
+import m0001 from './0001_bootstrap_migration_ledger.js';
+import m0002 from './0002_subscription_activation_source.js';
+import m0003 from './0003_refund_ledger.js';
+import m0004 from './0004_settlement_and_commission_guards.js';
+import m0005 from './0005_strip_retired_permissions.js';
+import m0006 from './0006_integration_key_hash_hygiene.js';
+import m0007 from './0007_variant_aware_reservations.js';
+import m0008 from './0008_vendor_channels.js';
+import m0009 from './0009_order_channel_attribution.js';
+import m0010 from './0010_vendor_channel_migration_stamp.js';
+import m0011 from './0011_shipment_model.js';
+import m0012 from './0012_vendor_item_fulfillment_type.js';
+import m0013 from './0013_phone_e164_backfill.js';
+import m0014 from './0014_product_shipping_backfill.js';
+import m0015 from './0015_delivery_passwordless_and_phone_identity.js';
+import m0016 from './0016_backfill_vendor_trial_used.js';
+import m0017 from './0017_product_publication_status.js';
+
+export const MIGRATIONS = [
+    m0001,
+    m0002,
+    m0003,
+    m0004,
+    m0005,
+    m0006,
+    m0007,
+    m0008,
+    m0009,
+    m0010,
+    m0011,
+    m0012,
+    m0013,
+    m0014,
+    m0015,
+    m0016,
+    m0017,
+];
+
+export default MIGRATIONS;

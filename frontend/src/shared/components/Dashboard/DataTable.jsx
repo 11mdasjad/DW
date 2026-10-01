@@ -1,0 +1,195 @@
+import React, { useState, useMemo } from 'react';
+import { FiSearch, FiChevronUp, FiChevronDown } from 'react-icons/fi';
+import { Card, Input, Pagination, SkeletonLoader, EmptyState } from '../ui';
+
+export const DataTable = ({
+  columns = [],
+  data = [],
+  loading = false,
+  searchable = true,
+  searchPlaceholder = 'Search table...',
+  pageSize = 10,
+  pagination = true,
+  emptyTitle = 'No Records Found',
+  emptyDescription = 'There are no items to display in this table.',
+  bulkActions = null,
+  className = '',
+  currentPage: externalCurrentPage,
+  onPageChange: externalOnPageChange,
+  serverSidePagination = false,
+  totalItems = null,
+  totalPages = null,
+  showSizeChanger = false,
+  onPageSizeChange = null,
+  pageSizeOptions = [25, 50, 100, 250, 500, 'All'],
+  sortConfig: externalSortConfig,
+  onSortChange: externalOnSortChange,
+}) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [internalPage, setInternalPage] = useState(1);
+  const [internalSortConfig, setInternalSortConfig] = useState({ key: null, direction: 'asc' });
+  const sortConfig = externalSortConfig !== undefined ? externalSortConfig : internalSortConfig;
+
+  const currentPage = externalCurrentPage !== undefined ? externalCurrentPage : internalPage;
+
+  const isAll = String(pageSize).toLowerCase() === 'all';
+  const numericPageSize = isAll ? 1000 : (Number(pageSize) || 10);
+
+  const handlePageChange = (page) => {
+    if (externalOnPageChange) {
+      externalOnPageChange(page);
+    }
+    setInternalPage(page);
+  };
+
+  // Filter data by search query
+  const filteredData = useMemo(() => {
+    if (serverSidePagination) return data;
+    if (!searchQuery.trim()) return data;
+    const lowerQ = searchQuery.toLowerCase();
+    return data.filter((row) =>
+      Object.values(row).some((val) =>
+        String(val ?? '').toLowerCase().includes(lowerQ)
+      )
+    );
+  }, [serverSidePagination, data, searchQuery]);
+
+  // Sort data
+  const sortedData = useMemo(() => {
+    if (serverSidePagination) return data;
+    if (!sortConfig.key) return filteredData;
+    return [...filteredData].sort((a, b) => {
+      const aVal = a[sortConfig.key];
+      const bVal = b[sortConfig.key];
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [serverSidePagination, data, filteredData, sortConfig]);
+
+  // Paginate data
+  const paginatedData = useMemo(() => {
+    if (serverSidePagination) return data;
+    if (isAll) return sortedData;
+    const startIndex = (currentPage - 1) * numericPageSize;
+    return sortedData.slice(startIndex, startIndex + numericPageSize);
+  }, [serverSidePagination, data, isAll, sortedData, currentPage, numericPageSize]);
+
+  const handleSort = (key) => {
+    const nextDirection = sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc';
+    const nextSort = { key, direction: nextDirection };
+    if (externalOnSortChange) {
+      externalOnSortChange(nextSort);
+    }
+    setInternalSortConfig(nextSort);
+  };
+
+  return (
+    <Card variant="default" padding="none" className={`bg-surface-card border-borderToken-default overflow-hidden ${className}`}>
+      {/* Table Header Controls */}
+      {(searchable || bulkActions) && (
+        <div className="p-4 border-b border-borderToken-default flex flex-col sm:flex-row items-center justify-between gap-3 bg-surface-card">
+          {searchable && (
+            <div className="w-full sm:w-72">
+              <Input
+                size="sm"
+                leftIcon={<FiSearch />}
+                placeholder={searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  handlePageChange(1);
+                }}
+              />
+            </div>
+          )}
+          {bulkActions && <div className="flex items-center gap-2">{bulkActions}</div>}
+        </div>
+      )}
+
+      {/* Table Content */}
+      <div className="overflow-x-auto scrollbar-hide">
+        {loading ? (
+          <div className="p-4">
+            <SkeletonLoader.Table rows={pageSize} />
+          </div>
+        ) : paginatedData.length === 0 ? (
+          <EmptyState
+            variant="no-data"
+            title={emptyTitle}
+            description={emptyDescription}
+          />
+        ) : (
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-borderToken-default bg-surface-background text-textColor-muted font-bold uppercase tracking-wider">
+                {columns.map((col) => (
+                  <th
+                    key={col.key}
+                    onClick={() => col.sortable && handleSort(col.key)}
+                    className={`px-4 py-3 select-none ${
+                      col.sortable ? 'cursor-pointer hover:text-textColor-primary' : ''
+                    } ${col.className || ''}`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>{col.title}</span>
+                      {col.sortable && sortConfig.key === col.key && (
+                        <span>
+                          {sortConfig.direction === 'asc' ? <FiChevronUp /> : <FiChevronDown />}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-borderToken-default">
+              {paginatedData.map((row, rowIdx) => (
+                <tr
+                  key={row.id ?? row._id ?? rowIdx}
+                  className="hover:bg-borderToken-light/40 transition-colors duration-150 text-textColor-primary font-medium"
+                >
+                  {columns.map((col) => (
+                    <td key={col.key} className={`px-4 py-3 align-middle ${col.className || ''}`}>
+                      {col.render ? col.render(row[col.key], row) : row[col.key]}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Pagination Footer */}
+      {(() => {
+        const effectiveTotalItems = serverSidePagination ? (totalItems ?? data.length) : sortedData.length;
+        const effectiveTotalPages = totalPages ?? Math.max(1, Math.ceil(effectiveTotalItems / (isAll ? (effectiveTotalItems || 1) : numericPageSize)));
+        const showPagination = pagination && !loading && (
+          serverSidePagination
+            ? (effectiveTotalPages > 1 || showSizeChanger || effectiveTotalItems > 0)
+            : (sortedData.length > numericPageSize || showSizeChanger)
+        );
+
+        if (!showPagination) return null;
+
+        return (
+          <div className="p-4 border-t border-borderToken-default flex justify-end bg-surface-card">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={effectiveTotalPages}
+              totalItems={effectiveTotalItems}
+              pageSize={pageSize}
+              onPageChange={handlePageChange}
+              showSizeChanger={showSizeChanger}
+              onPageSizeChange={onPageSizeChange}
+              pageSizeOptions={pageSizeOptions}
+            />
+          </div>
+        );
+      })()}
+    </Card>
+  );
+};
+
+export default DataTable;

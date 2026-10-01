@@ -1,0 +1,208 @@
+import { create } from "zustand";
+import toast from "react-hot-toast";
+import api from "../utils/api";
+import logoImage from "../../../data/logos/ChatGPT Image Dec 2, 2025, 03_01_19 PM.png";
+
+const defaultGeneralSettings = {
+  storeName: "Dwell Mart",
+  storeLogo: logoImage,
+  storeDescription: "Your ultimate online shopping destination for premium quality products.",
+  contactEmail: "contact@dwellmart.com",
+  contactPhone: "+91 98765 43210",
+  address: "123 Commerce Street, Tech Park, New Delhi, India",
+  businessHours: "Mon-Sat 9AM-8PM",
+  language: "en",
+  socialMedia: {
+    facebook: "",
+    instagram: "",
+    twitter: "",
+    linkedin: "",
+  },
+  defaultCommissionRate: 10,
+};
+
+const defaultShippingSettings = {
+  freeShippingThreshold: 1000,
+  defaultShippingRate: 65,
+  shippingMethods: ['standard'],
+};
+
+// In-flight initialization Promise lock to prevent concurrent duplicate API requests
+let inFlightInitPromise = null;
+
+export const useSettingsStore = create((set, get) => ({
+  settings: {
+    general: defaultGeneralSettings,
+    shipping: defaultShippingSettings,
+    features: {
+      wholesaleMarketplaceEnabled: true,
+      quickCommerceEnabled: true,
+    },
+  },
+  isLoading: false,
+  isInitialized: false,
+
+  // Initialize and fetch settings from API (single-flight deduplicated)
+  initialize: async () => {
+    if (get().isInitialized && get().settings?.general?.storeName && get().settings?.shipping?.freeShippingThreshold !== undefined) {
+      return get().settings;
+    }
+
+    if (inFlightInitPromise) {
+      return inFlightInitPromise;
+    }
+
+    set({ isLoading: true });
+
+    inFlightInitPromise = (async () => {
+      try {
+        const isAdmin = typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('adminToken'));
+        const endpoint = isAdmin ? "/admin/settings/general" : "/settings/general";
+        const res = await api.get(endpoint);
+        const data = res?.data || res || {};
+        const mergedGeneral = {
+          ...defaultGeneralSettings,
+          ...data,
+          socialMedia: {
+            ...defaultGeneralSettings.socialMedia,
+            ...(data.socialMedia || {}),
+          },
+        };
+
+        let features = {};
+        let reviews = {};
+        let shipping = { ...defaultShippingSettings };
+        try {
+          const fRes = await api.get("/settings/features");
+          features = fRes?.data || fRes || {};
+        } catch (e) {}
+
+        try {
+          const rRes = await api.get("/settings/reviews");
+          reviews = rRes?.data || rRes || {};
+        } catch (e) {}
+
+        try {
+          const sEndpoint = isAdmin ? "/admin/settings/shipping" : "/settings/shipping";
+          const sRes = await api.get(sEndpoint);
+          const sData = sRes?.data?.value || sRes?.data?.data || sRes?.data || sRes || {};
+          if (sData && typeof sData === 'object' && Object.keys(sData).length > 0) {
+            shipping = {
+              ...shipping,
+              ...sData,
+              freeShippingThreshold: sData.freeShippingThreshold !== undefined ? Number(sData.freeShippingThreshold) : shipping.freeShippingThreshold,
+              defaultShippingRate: sData.defaultShippingRate !== undefined ? Number(sData.defaultShippingRate) : shipping.defaultShippingRate,
+            };
+          }
+        } catch (e) {}
+
+        const finalSettings = {
+          ...get().settings,
+          general: mergedGeneral,
+          features,
+          reviews,
+          shipping,
+        };
+
+        set({
+          settings: finalSettings,
+          isLoading: false,
+          isInitialized: true,
+        });
+
+        return finalSettings;
+      } catch (error) {
+        // Do not permanently mark initialization as successful on error; allow retry
+        set({ isLoading: false, isInitialized: false });
+        return get().settings;
+      } finally {
+        inFlightInitPromise = null;
+      }
+    })();
+
+    return inFlightInitPromise;
+  },
+
+  // Alias for backward compatibility
+  initializeSettings: async () => get().initialize(),
+
+  // Save general settings via API
+  updateGeneralSettings: async (generalData) => {
+    set({ isLoading: true });
+    try {
+      const res = await api.put("/admin/settings/general", generalData);
+      const updatedData = res?.data || res || generalData;
+
+      const mergedGeneral = {
+        ...defaultGeneralSettings,
+        ...updatedData,
+        socialMedia: {
+          ...defaultGeneralSettings.socialMedia,
+          ...(updatedData.socialMedia || {}),
+        },
+      };
+
+      set((state) => ({
+        settings: {
+          ...state.settings,
+          general: mergedGeneral,
+        },
+        isLoading: false,
+      }));
+
+      toast.success("General settings updated successfully");
+      return mergedGeneral;
+    } catch (error) {
+      set({ isLoading: false });
+      const msg = error?.response?.data?.message || "Failed to update settings";
+      toast.error(msg);
+      throw error;
+    }
+  },
+
+  // Fetch specific category settings from API
+  fetchCategorySettings: async (category) => {
+    try {
+      const res = await api.get(`/admin/settings/${category}`);
+      const data = res?.data?.data || res?.data?.value || res?.data || {};
+      set((state) => ({
+        settings: {
+          ...state.settings,
+          [category]: data,
+        },
+      }));
+      return data;
+    } catch (error) {
+      console.error(`Failed to fetch ${category} settings`, error);
+      return {};
+    }
+  },
+
+  // Backward compatibility wrapper for updateSettings and dynamic endpoints
+  updateSettings: async (category, settingsData) => {
+    if (category === "general" || category === "vendor") {
+      const currentGeneral = get().settings?.general || defaultGeneralSettings;
+      const merged = { ...currentGeneral, ...settingsData };
+      return await get().updateGeneralSettings(merged);
+    }
+    
+    set({ isLoading: true });
+    try {
+      const res = await api.put(`/admin/settings/${category}`, settingsData);
+      const updatedData = res?.data?.data || res?.data || settingsData;
+      
+      set((state) => ({
+        settings: {
+          ...state.settings,
+          [category]: updatedData,
+        },
+        isLoading: false,
+      }));
+      return updatedData;
+    } catch (error) {
+      set({ isLoading: false });
+      console.error(`Failed to update ${category} settings`, error);
+      throw error;
+    }
+  },
+}));

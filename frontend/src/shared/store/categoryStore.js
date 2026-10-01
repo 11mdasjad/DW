@@ -1,0 +1,265 @@
+import { create } from 'zustand';
+import { categories as initialCategories } from '../../data/categories';
+import {
+  getAllCategories,
+  getPublicCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  reorderCategories as reorderCategoriesApi,
+  seedCategoriesApi,
+} from '../../modules/Admin/services/adminService';
+import { toastService } from '../utils/toastService';
+import { getExperience, EXPERIENCES } from '../utils/experience';
+
+// Automatically clean up legacy bloated category cache keys from localStorage to prevent QuotaExceededError
+if (typeof window !== 'undefined' && window.localStorage) {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('category-storage')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch (e) {
+    // Ignore storage errors in restricted contexts
+  }
+}
+
+export const useCategoryStore = create(
+  (set, get) => ({
+      categories: [],
+      isLoading: false,
+      // Which category tree is currently loaded. Null means the default
+      // (Marketplace) tree, matching pre-Quick-Commerce behaviour.
+      loadedExperience: null,
+
+      /**
+       * Initialize categories.
+       * @param {string} [experience] Admin only — which category tree to load.
+       *   Omitted loads the Marketplace tree, so existing callers are unchanged.
+       */
+      initialize: async (experience) => {
+        set({ isLoading: true });
+        try {
+          const isAdminArea =
+            typeof window !== 'undefined' &&
+            window.location.pathname.startsWith('/admin');
+          const isProductArea =
+            typeof window !== 'undefined' &&
+            (window.location.pathname.includes('/products') ||
+             window.location.pathname.includes('/product'));
+
+          // In admin area or product management forms, default to 'all' so that all categories (B2C, B2B, QC) are available.
+          // Otherwise, strictly resolve the active experience so retail/wholesale isolation is always preserved.
+          const effectiveExperience = experience || (isAdminArea || isProductArea ? 'all' : (getExperience() || EXPERIENCES.MARKETPLACE));
+
+          const response = isAdminArea
+            ? await getAllCategories(effectiveExperience)
+            : await getPublicCategories(effectiveExperience);
+          const normalizedCategories = (response?.data || []).map(cat => ({
+            ...cat,
+            id: cat._id // Ensure UI compatibility by aliasing _id to id
+          }));
+          set({
+            categories: normalizedCategories,
+            loadedExperience: effectiveExperience || null,
+            isLoading: false,
+          });
+        } catch (error) {
+          set({ isLoading: false });
+          // Error toast is handled in api.js interceptor
+        }
+      },
+
+      // Get all categories
+      getCategories: () => {
+        const state = get();
+        if (state.categories.length === 0) {
+          state.initialize();
+        }
+        return get().categories;
+      },
+
+      // Get category by ID or slug
+      getCategoryById: (id) => {
+        if (!id) return null;
+        const target = String(id).trim().toLowerCase();
+        return get().categories.find((cat) =>
+          String(cat.id || "").toLowerCase() === target ||
+          String(cat._id || "").toLowerCase() === target ||
+          String(cat.slug || "").toLowerCase() === target
+        );
+      },
+
+      // Create category
+      createCategory: async (categoryData) => {
+        set({ isLoading: true });
+        try {
+          const response = await createCategory(categoryData);
+          const newCategory = {
+            ...response.data,
+            id: response.data._id
+          };
+
+          set((state) => ({
+            categories: [...state.categories, newCategory],
+            isLoading: false
+          }));
+          toastService.success('Category created successfully');
+          return newCategory;
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
+      },
+
+      // Update category
+      updateCategory: async (id, categoryData) => {
+        set({ isLoading: true });
+        try {
+          const response = await updateCategory(id, categoryData);
+          const updatedCategory = {
+            ...response.data,
+            id: response.data._id
+          };
+
+          await get().initialize(get().loadedExperience || 'all');
+          toastService.success('Category updated successfully');
+          return updatedCategory;
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
+      },
+
+      // Delete category
+      deleteCategory: async (id) => {
+        set({ isLoading: true });
+        try {
+          await deleteCategory(id);
+          set((state) => ({
+            categories: state.categories.filter((cat) => String(cat.id) !== String(id)),
+            isLoading: false
+          }));
+          toastService.success('Category deleted successfully');
+          return true;
+        } catch (error) {
+          set({ isLoading: false });
+          return false;
+        }
+      },
+
+      // Bulk delete categories
+      bulkDeleteCategories: async (ids) => {
+        set({ isLoading: true });
+        try {
+          // Sequentially delete for now, or updating backend to support bulk delete would be better
+          // But to stick to constraints and existing service, we'll map
+          await Promise.all(ids.map(id => deleteCategory(id)));
+
+          set((state) => ({
+            categories: state.categories.filter(
+              (cat) => !ids.map(String).includes(String(cat.id))
+            ),
+            isLoading: false
+          }));
+          toastService.success(`${ids.length} categories deleted successfully`);
+          return true;
+        } catch (error) {
+          set({ isLoading: false });
+          return false;
+        }
+      },
+
+      // Toggle category status
+      toggleCategoryStatus: (id) => {
+        const category = get().getCategoryById(id);
+        if (category) {
+          get().updateCategory(id, { isActive: !category.isActive });
+        }
+      },
+
+      // Get categories by parent
+      getCategoriesByParent: (parentId) => {
+        return get().categories.filter((cat) => {
+          const normalizedParent = typeof cat.parentId === 'object'
+            ? (cat.parentId?._id ?? cat.parentId?.id ?? null)
+            : cat.parentId;
+          const catParentId = normalizedParent ? String(normalizedParent) : null;
+          const targetParentId = parentId ? String(parentId) : null;
+          return catParentId === targetParentId;
+        });
+      },
+
+      // Check if a category has child departments that themselves have subcategories (3-tier check)
+      hasSubDepartments: (categoryId) => {
+        if (!categoryId) return false;
+        const children = get().getCategoriesByParent(categoryId);
+        return children.some((child) => get().getCategoriesByParent(child.id).length > 0);
+      },
+
+      // Recursively get all descendant category IDs (both Level 2 and Level 3)
+      getAllDescendantCategoryIds: (categoryId) => {
+        if (!categoryId) return [];
+        const result = [String(categoryId)];
+        const queue = [String(categoryId)];
+        while (queue.length > 0) {
+          const currentId = queue.shift();
+          const children = get().getCategoriesByParent(currentId);
+          for (const child of children) {
+            const childId = String(child.id || child._id);
+            if (childId && !result.includes(childId)) {
+              result.push(childId);
+              queue.push(childId);
+            }
+          }
+        }
+        return result;
+      },
+
+      // Get root categories
+      getRootCategories: () => {
+        return get().categories.filter((cat) => !cat.parentId);
+      },
+
+      // Reorder categories
+      reorderCategories: async (categoryIds) => {
+        set({ isLoading: true });
+        try {
+          const response = await reorderCategoriesApi(categoryIds);
+          const normalizedCategories = (response.data || []).map((cat) => ({
+            ...cat,
+            id: cat._id,
+          }));
+          set({ categories: normalizedCategories, isLoading: false });
+          toastService.success('Category order updated successfully');
+          return true;
+        } catch (error) {
+          set({ isLoading: false });
+          return false;
+        }
+      },
+
+      // Seed marketplace categories
+      seedCategories: async () => {
+        set({ isLoading: true });
+        try {
+          const response = await seedCategoriesApi();
+          const categoriesList = response.data?.categories || [];
+          const normalizedCategories = categoriesList.map((cat) => ({
+            ...cat,
+            id: cat._id,
+          }));
+          set({ categories: normalizedCategories, isLoading: false });
+          toastService.success('Marketplace categories seeded successfully');
+          return true;
+        } catch (error) {
+          set({ isLoading: false });
+          return false;
+        }
+      },
+    })
+);

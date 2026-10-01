@@ -1,0 +1,709 @@
+import mongoose from 'mongoose';
+import asyncHandler from '../../../utils/asyncHandler.js';
+import ApiResponse from '../../../utils/ApiResponse.js';
+import ApiError from '../../../utils/ApiError.js';
+import Order from '../../../models/Order.model.js';
+import DeliveryBoy from '../../../models/DeliveryBoy.model.js';
+import User from '../../../models/User.model.js';
+import Commission from '../../../models/Commission.model.js';
+import Product from '../../../models/Product.model.js';
+import { createNotification } from '../../../services/notification.service.js';
+import { requestAndTryExecute } from '../../../services/refund/RefundOrchestrator.service.js';
+import {
+    claimRider,
+    releaseRider,
+    retryAssignment,
+} from '../../../services/riderAssignment.service.js';
+import { pointToLatLng } from '../../../services/quickCommerce.service.js';
+import Vendor from '../../../models/Vendor.model.js';
+import { EXPERIENCES } from '../../../constants/experiences.js';
+import { QUICK_COMMERCE_ASSIGNMENT_STATUS } from '../../../constants/quickCommerce.js';
+import { marketplaceEventBus, MARKETPLACE_EVENTS } from '../../../services/events/marketplaceEventBus.js';
+import { emitToRoom, emitToUserRoom } from '../../../socket.js';
+import Shipment from '../../../models/Shipment.model.js';
+import { cancelDtdcShipment } from '../../../services/shipping/dtdcShipment.service.js';
+import { reverseCouponUsage } from '../../../services/coupon.service.js';
+import { restoreOrderInventory } from '../../../services/inventoryRestoration.service.js';
+import { parsePagination } from '../../../utils/pagination.js';
+import { orderChannelFilter } from '../../../services/orderChannel.service.js';
+
+/**
+ * GET /api/admin/orders/quick-commerce/unassigned
+ *
+ * The escalation queue. Quick Commerce orders that found no rider land here so
+ * an operator can intervene — the whole point of recording `escalated` as a
+ * state rather than inferring it from a null `deliveryBoyId`.
+ */
+export const getUnassignedQuickCommerceOrders = asyncHandler(async (req, res) => {
+    const { page, limit, skip, calculatePages } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 1000 });
+
+    const filter = {
+        experience: EXPERIENCES.QUICK_COMMERCE,
+        isDeleted: { $ne: true },
+        deliveryBoyId: null,
+        'quickCommerce.assignment.status': QUICK_COMMERCE_ASSIGNMENT_STATUS.ESCALATED,
+        status: { $nin: ['delivered', 'cancelled', 'returned'] },
+    };
+
+    const [orders, total] = await Promise.all([
+        Order.find(filter)
+            .sort({ createdAt: 1 }) // oldest first — longest-waiting customer first
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .select('orderId createdAt total status quickCommerce vendorItems.vendorId vendorItems.vendorName shippingAddress.city')
+            .lean(),
+        Order.countDocuments(filter),
+    ]);
+
+    res.status(200).json(new ApiResponse(200, {
+        orders,
+        total,
+        page,
+        pages: Math.ceil(total / limit) || 1,
+    }, 'Unassigned Quick Commerce orders fetched.'));
+});
+
+/**
+ * POST /api/admin/orders/:id/retry-assignment
+ *
+ * Re-run automatic assignment for an escalated order. Cheaper for an operator
+ * than picking a rider by hand, and uses the identical claim path.
+ */
+export const retryQuickCommerceAssignment = asyncHandler(async (req, res) => {
+    const idFilter = [{ orderId: req.params.id }];
+    if (/^[0-9a-fA-F]{24}$/.test(req.params.id)) {
+        idFilter.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne({ $or: idFilter, isDeleted: { $ne: true } })
+        .select('orderId userId experience deliveryBoyId vendorItems.vendorId status');
+    if (!order) throw new ApiError(404, 'Order not found.');
+    if (order.experience !== EXPERIENCES.QUICK_COMMERCE) {
+        throw new ApiError(400, 'This is not a Quick Commerce order.');
+    }
+    if (order.deliveryBoyId) {
+        throw new ApiError(409, 'This order already has a delivery partner.');
+    }
+    if (['delivered', 'cancelled', 'returned'].includes(String(order.status))) {
+        throw new ApiError(409, `Cannot assign delivery for ${order.status} order.`);
+    }
+
+    const vendorId = order.vendorItems?.[0]?.vendorId;
+    const vendor = vendorId
+        ? await Vendor.findById(vendorId).select('quickCommerceProfile.location').lean()
+        : null;
+    const pickup = pointToLatLng(vendor?.quickCommerceProfile?.location);
+    if (!pickup) {
+        throw new ApiError(409, 'The store has no delivery location configured.');
+    }
+
+    const result = await retryAssignment(order._id, pickup);
+
+    res.status(200).json(new ApiResponse(200, {
+        assigned: result.assigned,
+        rider: result.rider
+            ? { id: String(result.rider._id), name: result.rider.name, phone: result.rider.phone }
+            : null,
+    }, result.assigned
+        ? 'Delivery partner assigned.'
+        : 'No delivery partner is available right now. The order remains in the queue.'));
+});
+
+// GET /api/admin/orders
+export const getAllOrders = asyncHandler(async (req, res) => {
+    const { status, experience, search, startDate, endDate, userId, sortBy, sortOrder } = req.query;
+    const { page, limit, skip, calculatePages } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 1000 });
+    const andConditions = [{ isDeleted: { $ne: true } }];
+
+    if (status && status !== 'all') {
+        andConditions.push({ status });
+    }
+    if (String(req.query.assignableOnly || '') === 'true' && (!status || status === 'all')) {
+        andConditions.push({ status: { $in: ['pending', 'processing', 'shipped'] } });
+    }
+
+    if (experience && experience !== 'all') {
+        const exp = String(experience).toLowerCase().trim();
+        const channelKey = exp === 'marketplace' ? 'retail' : exp;
+        const channelQuery = orderChannelFilter(channelKey);
+        const expOr = [
+            { experience: exp },
+            ...(channelQuery.$or || (Object.keys(channelQuery).length > 0 ? [channelQuery] : [])),
+        ];
+        andConditions.push({ $or: expOr });
+    }
+
+    if (search && String(search).trim()) {
+        const cleanSearch = String(search).trim();
+        const escaped = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+
+        const matchedUsers = await User.find({
+            $or: [{ name: regex }, { email: regex }, { phone: regex }]
+        }).select('_id').limit(200).lean();
+        const matchedUserIds = matchedUsers.map((u) => u._id);
+
+        const searchOr = [
+            { orderId: regex },
+            { 'shippingAddress.name': regex },
+            { 'shippingAddress.email': regex },
+            { 'shippingAddress.phone': regex },
+            ...(matchedUserIds.length > 0 ? [{ userId: { $in: matchedUserIds } }] : []),
+        ];
+
+        if (mongoose.Types.ObjectId.isValid(cleanSearch)) {
+            searchOr.push({ _id: new mongoose.Types.ObjectId(cleanSearch) });
+        }
+
+        andConditions.push({ $or: searchOr });
+    }
+
+    if (startDate || endDate) {
+        const dateCondition = {};
+        if (startDate) {
+            const start = new Date(startDate);
+            if (!isNaN(start.getTime())) {
+                start.setHours(0, 0, 0, 0);
+                dateCondition.$gte = start;
+            }
+        }
+        if (endDate) {
+            const end = new Date(endDate);
+            if (!isNaN(end.getTime())) {
+                end.setHours(23, 59, 59, 999);
+                dateCondition.$lte = end;
+            }
+        }
+        if (Object.keys(dateCondition).length > 0) {
+            andConditions.push({ createdAt: dateCondition });
+        }
+    }
+
+    if (req.query.vendorId) {
+        andConditions.push({ 'vendorItems.vendorId': req.query.vendorId });
+    }
+    if (userId) {
+        andConditions.push({ userId });
+    }
+    if (String(req.query.onlyUnassigned || '') === 'true') {
+        andConditions.push({ deliveryBoyId: null });
+    }
+
+    const filter = andConditions.length > 1 ? { $and: andConditions } : (andConditions[0] || {});
+
+    const allowedSortFields = {
+        createdAt: 'createdAt',
+        total: 'total',
+        orderId: 'orderId',
+        status: 'status',
+    };
+    const sortField = allowedSortFields[sortBy] || 'createdAt';
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
+
+    const [orders, total] = await Promise.all([
+        Order.find(filter)
+            .populate('userId', 'name email phone')
+            .populate('deliveryBoyId', 'name phone')
+            .sort({ [sortField]: sortDirection })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        Order.countDocuments(filter),
+    ]);
+
+    res.status(200).json(new ApiResponse(200, {
+        orders,
+        total,
+        page,
+        pages: calculatePages(total),
+        limit,
+    }, 'Orders fetched.'));
+});
+
+// GET /api/admin/orders/:id
+export const getOrderById = asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+        $or: [{ orderId: req.params.id }, { _id: req.params.id.match(/^[0-9a-fA-F]{24}$/) ? req.params.id : null }],
+        isDeleted: { $ne: true },
+    })
+        .populate('userId', 'name email phone')
+        .populate('deliveryBoyId', 'name phone email vehicleType vehicleNumber')
+        .populate('items.productId', 'name images price')
+        .lean();
+
+    if (!order) throw new ApiError(404, 'Order not found.');
+    res.status(200).json(new ApiResponse(200, order, 'Order fetched.'));
+});
+
+// PATCH /api/admin/orders/:id/status
+export const updateOrderStatus = asyncHandler(async (req, res) => {
+    const { status } = req.body;
+    const allowed = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'];
+    if (!allowed.includes(status)) throw new ApiError(400, `Status must be one of: ${allowed.join(', ')}`);
+
+    const order = await Order.findOne({
+        $or: [{ orderId: req.params.id }, { _id: req.params.id.match(/^[0-9a-fA-F]{24}$/) ? req.params.id : null }],
+        isDeleted: { $ne: true },
+    }).populate('userId', 'name email');
+
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    const previousStatus = String(order.status || '').toLowerCase();
+    const nextStatus = String(status || '').toLowerCase();
+
+    const allowedTransitions = {
+        pending:          ['confirmed', 'processing', 'cancelled'],
+        confirmed:        ['packed', 'cancelled'],
+        processing:       ['packed', 'shipped', 'cancelled'],
+        packed:           ['shipped', 'cancelled'],
+        shipped:          ['out_for_delivery', 'delivered', 'cancelled', 'returned'],
+        out_for_delivery: ['delivered', 'returned'],
+        delivered:        ['returned'],
+        cancelled:        [],
+        returned:         [],
+    };
+
+    if (previousStatus !== nextStatus) {
+        const nextAllowed = allowedTransitions[previousStatus] || [];
+        if (!nextAllowed.includes(nextStatus)) {
+            throw new ApiError(409, `Cannot move order from ${previousStatus} to ${nextStatus}.`);
+        }
+    }
+
+    order.status = nextStatus;
+    if (nextStatus === 'delivered') {
+        order.deliveredAt = new Date();
+        order.cancelledAt = null;
+        if (['pending', 'partially_paid'].includes(order.paymentStatus) && ['cod', 'cash'].includes(String(order.paymentMethod || '').toLowerCase())) {
+            order.paymentStatus = 'paid';
+            if (order.codDetails) {
+                if (!order.codDetails.cashCollectedAtDelivery || order.codDetails.cashCollectedAtDelivery === 0) {
+                    order.codDetails.cashCollectedAtDelivery = Number(
+                        order.codDetails.cashOnDeliveryDue != null
+                            ? order.codDetails.cashOnDeliveryDue
+                            : (order.total || 0)
+                    );
+                }
+                order.codDetails.cashOnDeliveryDue = 0;
+            }
+        }
+    } else if (nextStatus === 'cancelled') {
+        order.cancelledAt = new Date();
+    } else if (nextStatus === 'returned') {
+        order.cancelledAt = null;
+    } else {
+        order.deliveredAt = null;
+        order.cancelledAt = null;
+    }
+
+    if (nextStatus === 'processing') {
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'cancelled' || current === 'delivered') return vi;
+            const plain = vi?.toObject?.() ?? vi;
+            return { ...plain, status: 'processing' };
+        });
+    }
+    if (nextStatus === 'shipped') {
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'cancelled' || current === 'delivered') return vi;
+            const plain = vi?.toObject?.() ?? vi;
+            return { ...plain, status: 'shipped' };
+        });
+    }
+    if (nextStatus === 'delivered') {
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'cancelled') return vi;
+            const plain = vi?.toObject?.() ?? vi;
+            return { ...plain, status: 'delivered' };
+        });
+    }
+    if (nextStatus === 'cancelled') {
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'delivered') return vi;
+            const plain = vi?.toObject?.() ?? vi;
+            return { ...plain, status: 'cancelled' };
+        });
+
+        // Void any active DTDC consignment with the carrier
+        try {
+            const activeShipment = await Shipment.findOne({
+                orderId: order._id,
+                deliveryProvider: 'dtdc',
+                status: { $in: ['pending', 'booked'] },
+            });
+            if (activeShipment?.awbNumber) {
+                await cancelDtdcShipment(order, activeShipment.vendorId ? String(activeShipment.vendorId) : null);
+            }
+        } catch (shipErr) {
+            console.warn(`[OrderCancel] DTDC auto-cancel notice for order ${order._id}:`, shipErr.message);
+        }
+    }
+
+    if (nextStatus === 'cancelled') {
+        const session = await mongoose.startSession();
+        let refundContext = null;
+        try {
+            await session.withTransaction(async () => {
+                if (previousStatus !== 'cancelled' && ['pending', 'confirmed', 'processing', 'packed', 'shipped'].includes(previousStatus)) {
+                    // P2-DB-02 FIX: Restore inventory via batched 2-query optimization (replaces 2N sequential queries)
+                    await restoreOrderInventory(order.items, { session });
+                }
+
+                // Capture refundable context inside transaction for post-commit execution
+                if (['paid', 'partially_paid', 'partially_refunded'].includes(String(order.paymentStatus || ''))) {
+                    const isCod = ['cod', 'cash'].includes(String(order.paymentMethod || '').toLowerCase());
+                    const paidAmount = isCod
+                        ? Number(order.codDetails?.advancePaid || 0)
+                        : Number(order.total || 0);
+                    const refundable = Math.max(0, paidAmount - Number(order.refundedAmount || 0));
+                    if (refundable > 0) {
+                        refundContext = {
+                            orderId: order._id,
+                            orderNumber: order.orderId,
+                            amount: refundable,
+                        };
+                    }
+                }
+
+                await order.save({ session });
+
+                // Reverse vendor earnings visibility for this order.
+                // Keep it idempotent by only updating commissions not already cancelled.
+                await Commission.updateMany(
+                    {
+                        orderId: order._id,
+                        status: { $ne: 'cancelled' },
+                    },
+                    {
+                        $set: {
+                            status: 'cancelled',
+                            paidAt: null,
+                            settlementId: null,
+                        },
+                    },
+                    { session }
+                );
+
+                // P2-BIZ-01 FIX: Reverse coupon consumption on order cancellation
+                if (order.couponCode) {
+                    await reverseCouponUsage(
+                        order.couponCode,
+                        {
+                            userId: order.userId?._id || order.userId,
+                            orderId: order._id,
+                            checkoutSessionId: order.checkoutSessionId,
+                        },
+                        { session }
+                    );
+                }
+            });
+        } finally {
+            await session.endSession();
+        }
+
+        // Refund cancelled paid / partially-paid order post-commit
+        if (refundContext && refundContext.amount > 0) {
+            await requestAndTryExecute({
+                orderId: refundContext.orderId,
+                amount: refundContext.amount,
+                reason: `Order ${refundContext.orderNumber} cancelled by admin`,
+                refundType: 'full',
+                initiatedBy: req.user?.id || null,
+            }).catch((err) => {
+                console.error(`[AdminOrderCancel] Refund request failed for ${refundContext.orderNumber}: ${err?.message}`);
+            });
+        }
+    } else {
+        await order.save();
+    }
+
+    const notificationTasks = [];
+
+    if (order.userId) {
+        notificationTasks.push(
+            createNotification({
+                recipientId: order.userId,
+                recipientType: 'user',
+                title: 'Order status updated',
+                message: `Your order ${order.orderId} is now ${status}.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId),
+                    status: String(nextStatus),
+                },
+            })
+        );
+    }
+
+    const vendorIds = [
+        ...new Set(
+            (order.vendorItems || [])
+                .map((item) => String(item?.vendorId || '').trim())
+                .filter(Boolean)
+        ),
+    ];
+
+    vendorIds.forEach((vendorId) => {
+        notificationTasks.push(
+            createNotification({
+                recipientId: vendorId,
+                recipientType: 'vendor',
+                title: 'Order status updated by admin',
+                message: `Order ${order.orderId} was updated to ${status} by admin.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId),
+                    status: String(nextStatus),
+                },
+            })
+        );
+    });
+
+    if (order.deliveryBoyId) {
+        notificationTasks.push(
+            createNotification({
+                recipientId: order.deliveryBoyId,
+                recipientType: 'delivery',
+                title: 'Assigned order updated',
+                message: `Order ${order.orderId} is now ${status}.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId),
+                    status: String(nextStatus),
+                },
+            })
+        );
+    }
+
+    if (notificationTasks.length > 0) {
+        await Promise.allSettled(notificationTasks);
+    }
+
+    res.status(200).json(new ApiResponse(200, order, 'Order status updated.'));
+});
+
+// PATCH /api/admin/orders/:id/assign-delivery
+export const assignDeliveryBoy = asyncHandler(async (req, res) => {
+    const { deliveryBoyId } = req.body;
+    if (!deliveryBoyId) throw new ApiError(400, 'deliveryBoyId is required.');
+
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId).select('name isActive applicationStatus');
+    if (!deliveryBoy) throw new ApiError(404, 'Delivery boy not found.');
+    if (!deliveryBoy.isActive) throw new ApiError(400, 'Delivery boy is inactive.');
+    if (deliveryBoy.applicationStatus !== 'approved') {
+        throw new ApiError(400, 'Delivery boy is not approved.');
+    }
+
+    const filter = {
+        $or: [{ orderId: req.params.id }, { _id: req.params.id.match(/^[0-9a-fA-F]{24}$/) ? req.params.id : null }],
+        isDeleted: { $ne: true },
+    };
+    const order = await Order.findOne(filter);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    if (['cancelled', 'returned', 'delivered'].includes(String(order.status))) {
+        throw new ApiError(409, `Cannot assign delivery for ${order.status} order.`);
+    }
+
+    const previousDeliveryBoyId = order.deliveryBoyId ? String(order.deliveryBoyId) : '';
+    const isReassigned = previousDeliveryBoyId && previousDeliveryBoyId !== String(deliveryBoyId);
+
+    // Quick Commerce riders carry one order at a time, so a manual assignment
+    // must take the same atomic claim the automatic path takes — otherwise an
+    // admin can hand a rider a second order while they are mid-delivery.
+    if (order.experience === EXPERIENCES.QUICK_COMMERCE) {
+        const claimed = await claimRider(deliveryBoyId, order._id);
+        if (!claimed) {
+            throw new ApiError(409, `${deliveryBoy.name} is not available for a Quick Commerce order right now.`);
+        }
+        if (previousDeliveryBoyId && previousDeliveryBoyId !== String(deliveryBoyId)) {
+            // Free the rider being replaced.
+            await releaseRider(previousDeliveryBoyId, order._id);
+        }
+        order.quickCommerce = order.quickCommerce || {};
+        order.quickCommerce.assignment = {
+            ...(order.quickCommerce.assignment?.toObject?.() || order.quickCommerce.assignment || {}),
+            status: QUICK_COMMERCE_ASSIGNMENT_STATUS.ASSIGNED,
+            assignedAt: new Date(),
+            lastAttemptAt: new Date(),
+        };
+    }
+
+    order.deliveryBoyId = deliveryBoyId;
+    if (order.status === 'pending') {
+        order.status = 'processing';
+        // Keep vendor-facing status in sync with order lifecycle.
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'cancelled' || current === 'delivered') return vi;
+            const plain = vi?.toObject?.() ?? vi;
+            return { ...plain, status: 'processing' };
+        });
+    }
+    await order.save();
+    await order.populate('deliveryBoyId', 'name phone email vehicleType vehicleNumber');
+
+    // Emit domain event for event bus listeners
+    marketplaceEventBus.emit(MARKETPLACE_EVENTS.DELIVERY_ASSIGNED, { order, deliveryBoy });
+
+    // Emit Socket.IO events for real-time UI synchronization
+    const payload = {
+        orderId: String(order.orderId || order._id),
+        status: String(order.status),
+        deliveryBoyId: String(deliveryBoy._id),
+        deliveryBoyName: deliveryBoy.name,
+        order,
+    };
+    emitToRoom('admin', 'delivery_assigned', payload);
+    emitToRoom('admin', 'order_updated', order);
+    emitToUserRoom(deliveryBoy._id, 'delivery', 'delivery:assigned', payload);
+    emitToRoom(`order_${order._id}`, 'delivery_assigned', payload);
+
+    await createNotification({
+        recipientId: deliveryBoy._id,
+        recipientType: 'delivery',
+        title: isReassigned ? 'Order reassigned' : 'New order assigned',
+        message: `${order.orderId} has been ${isReassigned ? 'reassigned to you' : 'assigned to you'}.`,
+        type: 'order',
+        data: {
+            orderId: String(order.orderId),
+            reassigned: isReassigned ? 'true' : 'false',
+            assignedAt: new Date().toISOString(),
+        },
+    });
+
+    const assignmentTasks = [];
+    if (order.userId) {
+        assignmentTasks.push(
+            createNotification({
+                recipientId: order.userId,
+                recipientType: 'user',
+                title: isReassigned ? 'Delivery partner updated' : 'Delivery assigned',
+                message: `Order ${order.orderId} has a delivery partner assigned.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId),
+                    deliveryBoyId: String(deliveryBoy._id),
+                },
+            })
+        );
+    }
+
+    const vendorIds = [
+        ...new Set(
+            (order.vendorItems || [])
+                .map((item) => String(item?.vendorId || '').trim())
+                .filter(Boolean)
+        ),
+    ];
+    vendorIds.forEach((vendorId) => {
+        assignmentTasks.push(
+            createNotification({
+                recipientId: vendorId,
+                recipientType: 'vendor',
+                title: isReassigned ? 'Delivery reassigned' : 'Delivery assigned',
+                message: `Order ${order.orderId} has been assigned to a delivery partner.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId),
+                    deliveryBoyId: String(deliveryBoy._id),
+                },
+            })
+        );
+    });
+
+    if (assignmentTasks.length > 0) {
+        await Promise.allSettled(assignmentTasks);
+    }
+
+    res.status(200).json(new ApiResponse(200, order, 'Delivery boy assigned.'));
+});
+
+// DELETE /api/admin/orders/:id
+export const deleteOrder = asyncHandler(async (req, res) => {
+    const order = await Order.findOneAndUpdate(
+        {
+            $or: [{ orderId: req.params.id }, { _id: req.params.id.match(/^[0-9a-fA-F]{24}$/) ? req.params.id : null }],
+            isDeleted: { $ne: true },
+        },
+        {
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: req.user?.id || null,
+        },
+        { new: true }
+    );
+    if (!order) throw new ApiError(404, 'Order not found.');
+    res.status(200).json(new ApiResponse(200, null, 'Order archived.'));
+});
+
+// POST /api/admin/orders/:id/delivery-override
+export const deliveryOverride = asyncHandler(async (req, res) => {
+    const { action, reason } = req.body;
+    const allowedActions = ['retry', 'refund', 'return_to_store'];
+    if (!allowedActions.includes(action)) {
+        throw new ApiError(400, `Action must be one of: ${allowedActions.join(', ')}`);
+    }
+
+    const order = await Order.findOne({
+        $or: [{ orderId: req.params.id }, { _id: req.params.id.match(/^[0-9a-fA-F]{24}$/) ? req.params.id : null }],
+        isDeleted: { $ne: true },
+    });
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    order.adminOverride = {
+        action,
+        reason: String(reason || 'Admin override applied').trim(),
+        adminId: req.user.id,
+        timestamp: new Date(),
+    };
+
+    let refundRecord = null;
+
+    if (action === 'retry') {
+        order.status = 'processing';
+        if (order.quickCommerce) order.quickCommerce.status = 'retry_scheduled';
+        await order.save();
+    } else if (action === 'refund' || action === 'return_to_store') {
+        order.status = 'returned';
+        if (order.quickCommerce) order.quickCommerce.status = 'delivery_failed';
+        // `order.paymentStatus` is NOT set here any more. It is derived from
+        // settled Refund records — setting it directly is what previously told
+        // the customer they had been refunded while no money moved.
+        await order.save();
+
+        if (order.paymentStatus !== 'pending') {
+            const { getRefundableAmount } = await import('../../../services/refund/RefundOrchestrator.service.js');
+            const refundableAmount = await getRefundableAmount(order);
+            if (refundableAmount > 0) {
+                try {
+                    refundRecord = await requestAndTryExecute({
+                        orderId: order._id,
+                        amount: refundableAmount,
+                        reason: String(reason || `Admin override: ${action}`).trim(),
+                        refundType: 'full',
+                        initiatedBy: req.user.id,
+                    });
+                } catch (refErr) {
+                    console.error(`[AdminOverride] Refund failed for ${order.orderId}: ${refErr?.message}`);
+                }
+            }
+        }
+    } else {
+        await order.save();
+    }
+
+    res.status(200).json(
+        new ApiResponse(
+            200,
+            { order, refund: refundRecord },
+            refundRecord
+                ? `Admin override '${action}' applied. Refund ${refundRecord.refundNumber} is ${refundRecord.status}.`
+                : `Admin override '${action}' applied successfully.`
+        )
+    );
+});

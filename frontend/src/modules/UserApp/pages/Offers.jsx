@@ -1,0 +1,605 @@
+import { useState, useMemo, useEffect, useRef } from "react";
+import { FiArrowLeft, FiFilter, FiGrid, FiList, FiX, FiTag } from "react-icons/fi";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useExperienceStore } from "../../../shared/store/experienceStore";
+import { EXPERIENCES } from "../../../shared/utils/experience";
+import { motion, AnimatePresence } from "framer-motion";
+import MobileLayout from "../components/Layout/MobileLayout";
+import ProductCard from "../../../shared/components/ProductCard";
+import ProductListItem from "../components/Mobile/ProductListItem";
+import { categories as fallbackCategories } from "../../../data/categories";
+import PageTransition from "../../../shared/components/PageTransition";
+import useInfiniteScroll from "../../../shared/hooks/useInfiniteScroll";
+import api from "../../../shared/utils/api";
+import { formatPrice } from "../../../shared/utils/helpers";
+import toast from "react-hot-toast";
+import { useCategoryStore } from "../../../shared/store/categoryStore";
+import { usePageTranslation } from "../../../hooks/usePageTranslation";
+import { useDynamicTranslation } from "../../../hooks/useDynamicTranslation";
+import Pagination from "../../../shared/components/ui/Pagination/Pagination";
+
+const normalizeProduct = (raw) => {
+  const vendorObj =
+    raw?.vendorId && typeof raw.vendorId === "object" ? raw.vendorId : null;
+  const brandObj =
+    raw?.brandId && typeof raw.brandId === "object" ? raw.brandId : null;
+  const categoryObj =
+    raw?.categoryId && typeof raw.categoryId === "object" ? raw.categoryId : null;
+
+  return {
+    ...raw,
+    id: raw?._id || raw?.id,
+    vendorId: vendorObj?._id || raw?.vendorId,
+    brandId: brandObj?._id || raw?.brandId,
+    categoryId: String(categoryObj?._id || raw?.categoryId || ""),
+    vendorName: raw?.vendorName || vendorObj?.storeName || "",
+    brandName: raw?.brandName || brandObj?.name || "",
+    categoryName: raw?.categoryName || categoryObj?.name || "",
+    image: raw?.image || raw?.images?.[0] || "",
+    images: Array.isArray(raw?.images) ? raw.images : [],
+    price: Number(raw?.price) || 0,
+    originalPrice:
+      raw?.originalPrice !== undefined ? Number(raw.originalPrice) : undefined,
+    rating: Number(raw?.rating) || 0,
+    reviewCount: Number(raw?.reviewCount) || 0,
+  };
+};
+
+const getDiscountPercent = (product) => {
+  const original = Number(product?.originalPrice);
+  const current = Number(product?.price);
+  if (!Number.isFinite(original) || !Number.isFinite(current) || original <= current || original <= 0) return 0;
+  return Math.round(((original - current) / original) * 100);
+};
+
+const MobileOffers = () => {
+  const { getTranslatedText: t } = usePageTranslation([
+    "Special Offers",
+    "offer",
+    "offers",
+    "live now • Extra savings",
+    "Filters",
+    "Category",
+    "All Categories",
+    "Price Range",
+    "Min Price",
+    "Max Price",
+    "Minimum Rating",
+    "Stars",
+    "Clear All",
+    "Apply Filters",
+    "Available Coupons",
+    "OFF",
+    "Free Shipping",
+    "Min order:",
+    "No offers found",
+    "Try adjusting your filters",
+    "Loading more products...",
+    "Loading...",
+    "Load More"
+  ]);
+
+  const { translateArray } = useDynamicTranslation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { experience: activeExp } = useExperienceStore();
+  const currentExperience = searchParams.get('experience') || activeExp || EXPERIENCES.MARKETPLACE;
+  const { categories: storeCategories, initialize: initializeCategories } = useCategoryStore();
+  const [liveOffers, setLiveOffers] = useState([]);
+  const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState("grid");
+  const [filters, setFilters] = useState({
+    category: "",
+    minPrice: "",
+    maxPrice: "",
+    minRating: "",
+  });
+
+  useEffect(() => {
+    initializeCategories(currentExperience);
+  }, [initializeCategories, currentExperience]);
+
+  const categories = useMemo(() => {
+    const activeStoreCategories = storeCategories.filter((cat) => cat.isActive !== false);
+    if (activeStoreCategories.length) {
+      return activeStoreCategories;
+    }
+    return fallbackCategories;
+  }, [storeCategories]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLiveOffers = async () => {
+      try {
+        let products = [];
+
+        if (currentExperience === EXPERIENCES.WHOLESALE) {
+          // B2B Wholesale offers: products with tiered volume discounts or bulk deals
+          const wholesaleRes = await api.get("/products", {
+            params: {
+              experience: "wholesale",
+              page: 1,
+              limit: 40,
+              bulkDiscount: "true",
+            },
+          });
+          const payload = wholesaleRes?.data ?? wholesaleRes;
+          const items = Array.isArray(payload?.products) ? payload.products : [];
+          products = items.map(normalizeProduct).filter((p) => p.id);
+        } else {
+          // Standard Retail Campaigns & Flash Sale Offers
+          const campaignListResponse = await api.get("/campaigns", {
+            params: { type: "flash_sale,daily_deal,special_offer,festival", limit: 20 },
+          });
+          const campaignsPayload = campaignListResponse?.data ?? campaignListResponse;
+          const campaignSlugs = (Array.isArray(campaignsPayload) ? campaignsPayload : [])
+            .map((campaign) => String(campaign?.slug || "").trim())
+            .filter(Boolean);
+
+          const uniqueSlugs = [...new Set(campaignSlugs)].slice(0, 20);
+
+          if (uniqueSlugs.length) {
+            const campaignDetails = await Promise.allSettled(
+              uniqueSlugs.map((slug) => api.get(`/campaigns/${slug}`))
+            );
+
+            const productsById = new Map();
+            campaignDetails
+              .filter((item) => item.status === "fulfilled")
+              .forEach((item) => {
+                const payload = item.value?.data ?? item.value;
+                const campaignProducts = Array.isArray(payload?.products) ? payload.products : [];
+                campaignProducts.forEach((product) => {
+                  const normalized = normalizeProduct(product);
+                  if (!normalized.id) return;
+                  if (!productsById.has(normalized.id)) {
+                    productsById.set(normalized.id, normalized);
+                  }
+                });
+              });
+            products = Array.from(productsById.values());
+          }
+
+          // Fallback: If no campaign products found, fetch flash sales & active retail catalog products
+          if (!products.length) {
+            const [flashRes, allProductsRes] = await Promise.allSettled([
+              api.get("/flash-sale"),
+              api.get("/products", { params: { limit: 30, experience: "marketplace" } })
+            ]);
+
+            const map = new Map();
+            if (flashRes.status === "fulfilled") {
+              const rawFlash = flashRes.value?.data ?? flashRes.value;
+              const flashList = Array.isArray(rawFlash) ? rawFlash : [];
+              flashList.forEach((p) => {
+                const norm = normalizeProduct(p);
+                if (norm.id) map.set(norm.id, norm);
+              });
+            }
+            if (allProductsRes.status === "fulfilled") {
+              const rawProds = allProductsRes.value?.data?.products || allProductsRes.value?.products || (Array.isArray(allProductsRes.value?.data) ? allProductsRes.value.data : []);
+              (Array.isArray(rawProds) ? rawProds : []).forEach((p) => {
+                const norm = normalizeProduct(p);
+                if (norm.id && !map.has(norm.id)) map.set(norm.id, norm);
+              });
+            }
+            products = Array.from(map.values());
+          }
+        }
+
+        if (!cancelled) {
+          const translatedProducts = await translateArray(products, ['name', 'description', 'unit', 'categoryName', 'brandName', 'vendorName']);
+          setLiveOffers(translatedProducts);
+        }
+      } catch {
+        if (!cancelled) setLiveOffers([]);
+      }
+    };
+
+    const loadAvailableCoupons = async () => {
+      try {
+        const response = await api.get("/coupons/available");
+        const payload = response?.data ?? response;
+        if (!cancelled) {
+          const couponList = Array.isArray(payload) ? payload : [];
+          setAvailableCoupons(couponList);
+        }
+      } catch {
+        if (!cancelled) setAvailableCoupons([]);
+      }
+    };
+
+    loadLiveOffers();
+    loadAvailableCoupons();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [translateArray]);
+
+  const offersWithDiscount = useMemo(() => {
+    return liveOffers
+      .map((product) => ({ ...product, discount: getDiscountPercent(product) }))
+      .sort((a, b) => b.discount - a.discount);
+  }, [liveOffers]);
+
+  const filteredProducts = useMemo(() => {
+    let result = offersWithDiscount;
+
+    if (filters.category) {
+      result = result.filter(
+        (product) => String(product.categoryId || "") === String(filters.category)
+      );
+    }
+    if (filters.minPrice) {
+      result = result.filter(
+        (product) => product.price >= parseFloat(filters.minPrice)
+      );
+    }
+    if (filters.maxPrice) {
+      result = result.filter(
+        (product) => product.price <= parseFloat(filters.maxPrice)
+      );
+    }
+    if (filters.minRating) {
+      result = result.filter(
+        (product) => product.rating >= parseFloat(filters.minRating)
+      );
+    }
+    return result;
+  }, [offersWithDiscount, filters]);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(12);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, liveOffers.length]);
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredProducts.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredProducts, currentPage, itemsPerPage]);
+
+  const filterButtonRef = useRef(null);
+
+  const handleFilterChange = (name, value) => {
+    setFilters({ ...filters, [name]: value });
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      category: "",
+      minPrice: "",
+      maxPrice: "",
+      minRating: "",
+    });
+  };
+
+  const hasActiveFilters =
+    filters.minPrice || filters.maxPrice || filters.minRating || filters.category;
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        showFilters &&
+        filterButtonRef.current &&
+        !filterButtonRef.current.contains(event.target) &&
+        !event.target.closest(".filter-dropdown")
+      ) {
+        setShowFilters(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [showFilters]);
+
+  const copyCoupon = async (code) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success(`Coupon ${code} copied`);
+    } catch {
+      toast.success(`Coupon: ${code}`);
+    }
+  };
+
+  return (
+    <PageTransition>
+      <MobileLayout showBottomNav={true} showCartBar={true}>
+        <div className="w-full pb-24">
+          <div className="mx-2 mt-2 px-4 py-6 bg-surface-header border border-border rounded-2xl sticky top-2 z-30 shadow-md">
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                onClick={() => navigate(-1)}
+                className="p-2 hover:bg-surface-muted rounded-full transition-colors">
+                <FiArrowLeft className="text-xl text-white" />
+              </button>
+              <div className="flex-1">
+                <h1 className="text-2xl font-black text-white tracking-tight uppercase">
+                  {t('Special Offers')}
+                </h1>
+                <p className="text-sm font-medium text-brand-primary">
+                  {filteredProducts.length} {filteredProducts.length === 1 ? t("offer") : t("offers")} {t('live now • Extra savings')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-surface-muted rounded-lg p-1 border border-border">
+                  <button
+                    onClick={() => setViewMode("list")}
+                    className={`p-1.5 rounded transition-colors ${viewMode === "list"
+                      ? "bg-surface text-brand-primary shadow-sm"
+                      : "text-content-secondary"
+                      }`}
+                  >
+                    <FiList className="text-lg" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode("grid")}
+                    className={`p-1.5 rounded transition-colors ${viewMode === "grid"
+                      ? "bg-surface text-brand-primary shadow-sm"
+                      : "text-content-secondary"
+                      }`}
+                  >
+                    <FiGrid className="text-lg" />
+                  </button>
+                </div>
+                <div ref={filterButtonRef} className="relative">
+                  <button
+                    onClick={() => setShowFilters(!showFilters)}
+                    className={`p-2 glass-card rounded-xl hover:bg-surface/80 transition-colors ${showFilters ? "bg-surface/80" : ""
+                      }`}>
+                    <FiFilter
+                      className={`text-lg transition-colors ${hasActiveFilters ? "text-brand-primary" : "text-content-secondary"
+                        }`}
+                    />
+                  </button>
+
+                  <AnimatePresence>
+                    {showFilters && (
+                      <>
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          onClick={() => setShowFilters(false)}
+                          className="fixed inset-0 bg-black/20 z-[10000]"
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 300,
+                            damping: 30,
+                          }}
+                          className="filter-dropdown absolute right-0 top-full w-56 bg-surface rounded-xl shadow-2xl border border-border z-[10001] overflow-hidden"
+                          style={{ marginTop: "-50px" }}>
+                          <div className="flex items-center justify-between px-2 py-1.5 border-b border-border bg-surface-muted">
+                            <div className="flex items-center gap-1.5">
+                              <FiFilter className="text-sm text-content-secondary" />
+                              <h3 className="text-sm font-bold text-content">
+                                {t('Filters')}
+                              </h3>
+                            </div>
+                            <button
+                              onClick={() => setShowFilters(false)}
+                              className="p-0.5 hover:bg-border rounded-full transition-colors">
+                              <FiX className="text-sm text-content-secondary" />
+                            </button>
+                          </div>
+
+                          <div className="max-h-[50vh] overflow-y-auto scrollbar-hide">
+                            <div className="p-2 space-y-2">
+                              <div>
+                                <h4 className="font-semibold text-content-secondary mb-1 text-xs">
+                                  {t('Category')}
+                                </h4>
+                                <select
+                                  value={filters.category}
+                                  onChange={(e) =>
+                                    handleFilterChange("category", e.target.value)
+                                  }
+                                  className="w-full px-2 py-1.5 rounded-md border border-border bg-surface text-content focus:outline-none focus:ring-1 focus:ring-brand-primary text-xs"
+                                >
+                                  <option value="">{t('All Categories')}</option>
+                                  {categories.map((cat) => (
+                                    <option key={cat.id} value={String(cat.id)}>
+                                      {cat.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <h4 className="font-semibold text-content-secondary mb-1 text-xs">
+                                  {t('Price Range')}
+                                </h4>
+                                <div className="space-y-1.5">
+                                  <input
+                                    type="number"
+                                    placeholder={t("Min Price")}
+                                    value={filters.minPrice}
+                                    onChange={(e) =>
+                                      handleFilterChange("minPrice", e.target.value)
+                                    }
+                                    className="w-full px-2 py-1.5 rounded-md border border-border bg-surface text-content focus:outline-none focus:ring-1 focus:ring-brand-primary text-xs"
+                                  />
+                                  <input
+                                    type="number"
+                                    placeholder={t("Max Price")}
+                                    value={filters.maxPrice}
+                                    onChange={(e) =>
+                                      handleFilterChange("maxPrice", e.target.value)
+                                    }
+                                    className="w-full px-2 py-1.5 rounded-md border border-border bg-surface text-content focus:outline-none focus:ring-1 focus:ring-brand-primary text-xs"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <h4 className="font-semibold text-content-secondary mb-1 text-xs">
+                                  {t('Minimum Rating')}
+                                </h4>
+                                <div className="space-y-0.5">
+                                  {[4, 3, 2, 1].map((rating) => (
+                                    <label
+                                      key={rating}
+                                      className="flex items-center gap-1.5 cursor-pointer p-1 rounded-md hover:bg-surface-muted transition-colors">
+                                      <input
+                                        type="radio"
+                                        name="minRating"
+                                        value={rating}
+                                        checked={filters.minRating === rating.toString()}
+                                        onChange={(e) =>
+                                          handleFilterChange("minRating", e.target.value)
+                                        }
+                                        className="w-3 h-3 appearance-none rounded-full border-2 border-border bg-surface checked:bg-surface checked:border-brand-primary relative cursor-pointer"
+                                        style={{
+                                          backgroundImage:
+                                            filters.minRating === rating.toString()
+                                              ? "radial-gradient(circle, var(--color-brand-primary) 40%, transparent 40%)"
+                                              : "none",
+                                        }}
+                                      />
+                                      <span className="text-xs text-content-secondary">
+                                        {rating}+ {t('Stars')}
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-border p-2 bg-surface-muted space-y-1.5">
+                            <button
+                              onClick={clearFilters}
+                              className="w-full py-1.5 bg-border text-content-secondary rounded-md font-semibold text-xs hover:bg-border-strong transition-colors">
+                              {t('Clear All')}
+                            </button>
+                            <button
+                              onClick={() => setShowFilters(false)}
+                              className="w-full py-1.5 bg-brand-primary text-black rounded-md font-semibold text-xs hover:bg-brand-primaryHover transition-all">
+                              {t('Apply Filters')}
+                            </button>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {availableCoupons.length > 0 && (
+            <div className="px-4 pt-4">
+              <div className="bg-surface border border-border rounded-xl p-3">
+                <h3 className="text-sm font-bold text-content mb-2 flex items-center gap-2">
+                  <FiTag className="text-brand-primary" />
+                  {t('Available Coupons')}
+                </h3>
+                <div className="space-y-2">
+                  {availableCoupons.slice(0, 4).map((coupon) => (
+                    <button
+                      key={coupon._id || coupon.code}
+                      onClick={() => copyCoupon(coupon.code)}
+                      className="w-full text-left p-2 rounded-lg bg-surface-muted hover:bg-border/30 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-content">{coupon.code}</p>
+                        <p className="text-xs text-brand-primary font-semibold">
+                          {coupon.type === "percentage"
+                            ? `${coupon.value}% ${t('OFF')}`
+                            : coupon.type === "fixed"
+                               ? `${formatPrice(coupon.value)} ${t('OFF')}`
+                               : t("Free Shipping")}
+                        </p>
+                      </div>
+                      <p className="text-xs text-content-secondary">
+                        {t('Min order:')} {formatPrice(coupon.minOrderValue || 0)}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="px-4 py-4">
+            {filteredProducts.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-6xl text-content-muted mx-auto mb-4">[ ]</div>
+                <h3 className="text-xl font-bold text-content mb-2">
+                  {t('No offers found')}
+                </h3>
+                <p className="text-content-secondary">{t('Try adjusting your filters')}</p>
+              </div>
+            ) : viewMode === "grid" ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 md:gap-4 lg:gap-6">
+                  {paginatedProducts.map((product, index) => (
+                    <motion.div
+                      key={product.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}>
+                      <ProductCard product={product} isFlashSale={true} />
+                    </motion.div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {paginatedProducts.map((product, index) => (
+                    <ProductListItem
+                      key={product.id}
+                      product={product}
+                      index={index}
+                      isFlashSale={true}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {filteredProducts.length > 0 && (
+              <div className="mt-8 border-t border-border pt-4">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={filteredProducts.length}
+                  pageSize={itemsPerPage}
+                  showSizeChanger={true}
+                  pageSizeOptions={[12, 24, 48, 100]}
+                  onPageChange={(page) => {
+                    setCurrentPage(page);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onPageSizeChange={(size) => {
+                    setItemsPerPage(size);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </MobileLayout>
+    </PageTransition>
+  );
+};
+
+export default MobileOffers;
+

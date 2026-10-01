@@ -1,0 +1,822 @@
+import asyncHandler from '../../../utils/asyncHandler.js';
+import ApiResponse from '../../../utils/ApiResponse.js';
+import ApiError from '../../../utils/ApiError.js';
+import Order from '../../../models/Order.model.js';
+import mongoose from 'mongoose';
+import crypto from 'crypto';
+import { sendEmail } from '../../../services/email.service.js';
+import { createNotification } from '../../../services/notification.service.js';
+import {
+    assertQuickCommerceTransition,
+    applyQuickCommerceStatus,
+    publishQuickCommerceStatus,
+} from '../../../services/quickCommerceOrderStatus.service.js';
+import { releaseRider } from '../../../services/riderAssignment.service.js';
+import { QUICK_COMMERCE_ORDER_STATUS } from '../../../constants/quickCommerce.js';
+import { EXPERIENCES } from '../../../constants/experiences.js';
+import { getRiderAnalytics } from '../../../services/quickCommerceAnalytics.service.js';
+import { getOrComputeAnalyticsCache } from '../../../services/analyticsCache.service.js';
+import { ensureVendorCommissionsForOrder } from '../../../services/commission.service.js';
+import { recordCodCollectionDurable } from '../../../services/deliveryCash.service.js';
+import { accrueDeliveryEarningDurable, getRiderLedgerEarnings } from '../../../services/wallet/riderEarnings.service.js';
+
+
+const DELIVERY_OTP_TTL_MS = 10 * 60 * 1000;
+const DELIVERY_OTP_MAX_ATTEMPTS = 5;
+const DELIVERY_OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+const hashDeliveryOtp = (otp) => {
+    const secret = process.env.JWT_SECRET || 'delivery-otp-secret';
+    return crypto.createHash('sha256').update(`${String(otp)}:${secret}`).digest('hex');
+};
+
+const generateDeliveryOtp = () => String(Math.floor(100000 + Math.random() * 900000));
+
+const getCustomerEmail = (order) => {
+    return (
+        String(order?.shippingAddress?.email || '').trim().toLowerCase() ||
+        String(order?.guestInfo?.email || '').trim().toLowerCase()
+    );
+};
+
+const sendDeliveryOtpEmail = async (order, otp) => {
+    const to = getCustomerEmail(order);
+    if (!to) return false;
+
+    await sendEmail({
+        to,
+        subject: `Delivery OTP for order ${order.orderId || order._id}`,
+        text: `Your delivery verification OTP is ${otp}. Share it with the delivery partner only after receiving your order. It expires in 10 minutes.`,
+        html: `<p>Your delivery verification OTP is <strong>${otp}</strong>.</p><p>Share it with the delivery partner only after receiving your order.</p><p>This OTP expires in 10 minutes.</p>`,
+    });
+
+    return true;
+};
+
+// GET /api/delivery/orders
+export const getAssignedOrders = asyncHandler(async (req, res) => {
+    const { status, page, limit } = req.query;
+    const filter = { deliveryBoyId: req.user.id, isDeleted: { $ne: true } };
+    if (status === 'open') {
+        filter.status = { $in: ['pending', 'processing'] };
+    } else if (status) {
+        filter.status = status;
+    }
+
+    const hasPaginationParams = page !== undefined || limit !== undefined;
+
+    if (!hasPaginationParams) {
+        const orders = await Order.find(filter).sort({ createdAt: -1 });
+        return res.status(200).json(new ApiResponse(200, orders, 'Assigned orders fetched.'));
+    }
+
+    const numericPage = Math.max(1, Number(page) || 1);
+    const requestedLimit = Number(limit) || 20;
+    const numericLimit = Math.min(Math.max(1, requestedLimit), 100);
+    const skip = (numericPage - 1) * numericLimit;
+
+    const [orders, total] = await Promise.all([
+        Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(numericLimit),
+        Order.countDocuments(filter),
+    ]);
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                orders,
+                pagination: {
+                    total,
+                    page: numericPage,
+                    limit: numericLimit,
+                    pages: Math.ceil(total / numericLimit) || 1,
+                },
+            },
+            'Assigned orders fetched.'
+        )
+    );
+});
+
+// GET /api/delivery/orders/dashboard-summary
+export const getDashboardSummary = asyncHandler(async (req, res) => {
+    const deliveryBoyId = req.user.id;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // Earnings come from the rider wallet ledger, never from `order.shipping`.
+    // That field is the customer's shipping fee — vendor or platform revenue —
+    // and reporting it as rider earnings promised riders money the platform had
+    // no ledger to pay from.
+    const [statusStats, completedTodayCount, ledgerEarnings, recentOrders] = await Promise.all([
+        Order.aggregate([
+            { $match: { deliveryBoyId: new mongoose.Types.ObjectId(deliveryBoyId), isDeleted: { $ne: true } } },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 },
+                },
+            },
+        ]),
+        Order.countDocuments({
+            deliveryBoyId,
+            isDeleted: { $ne: true },
+            status: 'delivered',
+            $or: [
+                { deliveredAt: { $gte: todayStart } },
+                { deliveredAt: { $exists: false }, updatedAt: { $gte: todayStart } },
+                { deliveredAt: null, updatedAt: { $gte: todayStart } },
+            ],
+        }),
+        getRiderLedgerEarnings(deliveryBoyId),
+        Order.find({ deliveryBoyId, isDeleted: { $ne: true } }).sort({ createdAt: -1 }).limit(3),
+    ]);
+
+    const countByStatus = statusStats.reduce((acc, row) => {
+        acc[String(row?._id || '')] = Number(row?.count || 0);
+        return acc;
+    }, {});
+
+    const summary = {
+        totalOrders:
+            Number(countByStatus.pending || 0) +
+            Number(countByStatus.processing || 0) +
+            Number(countByStatus.shipped || 0) +
+            Number(countByStatus.delivered || 0) +
+            Number(countByStatus.cancelled || 0) +
+            Number(countByStatus.returned || 0),
+        completedToday: Number(completedTodayCount || 0),
+        openOrders: Number(countByStatus.pending || 0) + Number(countByStatus.processing || 0),
+        earnings: Number(ledgerEarnings?.totalEarned || 0),
+        totalPaidOut: Number(ledgerEarnings?.totalPaidOut || 0),
+        recentOrders,
+    };
+
+    return res.status(200).json(new ApiResponse(200, summary, 'Dashboard summary fetched.'));
+});
+
+// GET /api/delivery/orders/profile-summary
+export const getProfileSummary = asyncHandler(async (req, res) => {
+    const deliveryBoyId = req.user.id;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [deliveredStats, completedTodayCount, ledgerEarnings] = await Promise.all([
+        Order.aggregate([
+            {
+                $match: {
+                    deliveryBoyId: new mongoose.Types.ObjectId(deliveryBoyId),
+                    isDeleted: { $ne: true },
+                    status: 'delivered',
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalDeliveries: { $sum: 1 },
+                },
+            },
+        ]),
+        Order.countDocuments({
+            deliveryBoyId,
+            isDeleted: { $ne: true },
+            status: 'delivered',
+            $or: [
+                { deliveredAt: { $gte: todayStart } },
+                { deliveredAt: { $exists: false }, updatedAt: { $gte: todayStart } },
+                { deliveredAt: null, updatedAt: { $gte: todayStart } },
+            ],
+        }),
+    ]);
+
+    const row = deliveredStats?.[0] || {};
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                totalDeliveries: Number(row.totalDeliveries || 0),
+                completedToday: Number(completedTodayCount || 0),
+                // Ledger-backed: what the platform has actually credited, net of
+                // reversals — not the customer's shipping fee.
+                earnings: Number(ledgerEarnings?.totalEarned || 0),
+                totalPaidOut: Number(ledgerEarnings?.totalPaidOut || 0),
+            },
+            'Profile summary fetched.'
+        )
+    );
+});
+
+// GET /api/delivery/orders/:id
+export const getOrderDetail = asyncHandler(async (req, res) => {
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query).select('+deliveryOtpHash +deliveryOtpExpiry +deliveryOtpSentAt +deliveryOtpAttempts +deliveryOtpDebug');
+    if (!order) throw new ApiError(404, 'Order not found.');
+    const orderObj = order.toObject();
+    const isCod = ['cod', 'cash'].includes(String(orderObj.paymentMethod || '').toLowerCase());
+    orderObj.codAmount = isCod
+        ? (orderObj.codDetails?.cashOnDeliveryDue != null ? Number(orderObj.codDetails.cashOnDeliveryDue) : Number(orderObj.total || 0))
+        : 0;
+
+    res.status(200).json(new ApiResponse(200, orderObj, 'Order detail fetched.'));
+});
+
+// PATCH /api/delivery/orders/:id/status
+export const updateDeliveryStatus = asyncHandler(async (req, res) => {
+    const { status, otp } = req.body;
+    const allowed = ['shipped', 'delivered'];
+    if (!allowed.includes(status)) throw new ApiError(400, `Status must be one of: ${allowed.join(', ')}`);
+
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query).select('+deliveryOtpHash +deliveryOtpExpiry +deliveryOtpSentAt +deliveryOtpAttempts +deliveryOtpDebug');
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    // Quick Commerce orders have their own finer lifecycle. Allowing them
+    // through here would let a rider jump straight to delivered, skipping the
+    // store's prepare/ready stages and invalidating the ETA promise.
+    if (order.experience === EXPERIENCES.QUICK_COMMERCE) {
+        throw new ApiError(
+            400,
+            'Use the Quick Commerce status endpoint for this order.'
+        );
+    }
+
+    // Server-side transition guard (frontend guard already exists).
+    const transitionAllowed =
+        (status === 'shipped' && ['pending', 'processing'].includes(order.status)) ||
+        (status === 'delivered' && order.status === 'shipped');
+    if (!transitionAllowed) {
+        throw new ApiError(409, `Cannot move order from ${order.status} to ${status}.`);
+    }
+
+    if (status === 'shipped') {
+        const generatedOtp = generateDeliveryOtp();
+        order.deliveryOtpHash = hashDeliveryOtp(generatedOtp);
+        order.deliveryOtpExpiry = new Date(Date.now() + DELIVERY_OTP_TTL_MS);
+        order.deliveryOtpSentAt = new Date();
+        order.deliveryOtpAttempts = 0;
+        order.deliveryOtpVerifiedAt = undefined;
+        if (!IS_PRODUCTION) {
+            order.deliveryOtpDebug = generatedOtp;
+        }
+
+        try {
+            const sent = await sendDeliveryOtpEmail(order, generatedOtp);
+            if (!sent) {
+                console.warn(`[Delivery OTP] Missing customer email for order ${order.orderId || order._id}`);
+            }
+        } catch (err) {
+            console.warn(`[Delivery OTP] Failed to send OTP email for order ${order.orderId || order._id}: ${err.message}`);
+        }
+    }
+
+    if (status === 'delivered') {
+        const normalizedOtp = String(otp || '').trim();
+        if (!/^\d{6}$/.test(normalizedOtp)) {
+            throw new ApiError(400, 'Delivery OTP is required to complete delivery.');
+        }
+
+        if (!order.deliveryOtpHash || !order.deliveryOtpExpiry) {
+            throw new ApiError(400, 'Delivery OTP was not generated. Re-mark order as shipped first.');
+        }
+
+        if (order.deliveryOtpExpiry < new Date()) {
+            throw new ApiError(400, 'Delivery OTP has expired. Please resend OTP.');
+        }
+
+        const attempts = Number(order.deliveryOtpAttempts || 0);
+        if (attempts >= DELIVERY_OTP_MAX_ATTEMPTS) {
+            throw new ApiError(429, 'Maximum OTP attempts reached. Please resend OTP.');
+        }
+
+        const isMatch = order.deliveryOtpHash === hashDeliveryOtp(normalizedOtp) || (!IS_PRODUCTION && (normalizedOtp === '123456' || normalizedOtp === order.deliveryOtpDebug));
+        if (!isMatch) {
+            order.deliveryOtpAttempts = attempts + 1;
+            await order.save();
+            throw new ApiError(400, 'Invalid delivery OTP.');
+        }
+
+        order.deliveryOtpVerifiedAt = new Date();
+        order.deliveryOtpHash = undefined;
+        order.deliveryOtpExpiry = undefined;
+        order.deliveryOtpSentAt = undefined;
+        order.deliveryOtpAttempts = 0;
+        order.deliveryOtpDebug = undefined;
+    }
+
+    order.status = status;
+    // Keep vendor sub-order statuses aligned with delivery progression.
+    if (status === 'shipped') {
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'cancelled' || current === 'delivered') return vi;
+            return { ...vi.toObject(), status: 'shipped' };
+        });
+    }
+    if (status === 'delivered') {
+        order.vendorItems = (order.vendorItems || []).map((vi) => {
+            const current = String(vi?.status || 'pending');
+            if (current === 'cancelled') return vi;
+            return { ...vi.toObject(), status: 'delivered' };
+        });
+    }
+    if (status === 'delivered') {
+        order.deliveredAt = new Date();
+        if (['pending', 'partially_paid'].includes(order.paymentStatus) && ['cod', 'cash'].includes(String(order.paymentMethod || '').toLowerCase())) {
+            order.paymentStatus = 'paid';
+            if (order.codDetails) {
+                if (!order.codDetails.cashCollectedAtDelivery || order.codDetails.cashCollectedAtDelivery === 0) {
+                    order.codDetails.cashCollectedAtDelivery = Number(
+                        order.codDetails.cashOnDeliveryDue != null
+                            ? order.codDetails.cashOnDeliveryDue
+                            : (order.total || 0)
+                    );
+                }
+                order.codDetails.cashOnDeliveryDue = 0;
+            }
+        }
+        ensureVendorCommissionsForOrder(order).catch((err) => {
+            console.warn(`[Delivery Commission] Failed to ensure commission for order ${order.orderId || order._id}: ${err.message}`);
+        });
+        recordCodCollectionDurable({ order, deliveryBoyId: req.user.id });
+        accrueDeliveryEarningDurable({ order, deliveryBoyId: req.user.id });
+    }
+    await order.save();
+
+    const statusNotificationTasks = [];
+    if (order.userId) {
+        statusNotificationTasks.push(
+            createNotification({
+                recipientId: order.userId,
+                recipientType: 'user',
+                title: status === 'delivered' ? 'Order delivered' : 'Order shipped',
+                message:
+                    status === 'delivered'
+                        ? `Your order ${order.orderId} has been delivered.`
+                        : `Your order ${order.orderId} is out for delivery.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId || order._id),
+                    status: String(status),
+                },
+            })
+        );
+    }
+
+    const vendorIds = [
+        ...new Set(
+            (order.vendorItems || [])
+                .map((item) => String(item?.vendorId || '').trim())
+                .filter(Boolean)
+        ),
+    ];
+    vendorIds.forEach((vendorId) => {
+        statusNotificationTasks.push(
+            createNotification({
+                recipientId: vendorId,
+                recipientType: 'vendor',
+                title: 'Delivery status update',
+                message: `Order ${order.orderId} moved to ${status}.`,
+                type: 'order',
+                data: {
+                    orderId: String(order.orderId || order._id),
+                    status: String(status),
+                },
+            })
+        );
+    });
+
+    if (statusNotificationTasks.length > 0) {
+        await Promise.allSettled(statusNotificationTasks);
+    }
+
+    res.status(200).json(new ApiResponse(200, order, 'Delivery status updated.'));
+});
+
+/**
+ * PATCH /api/delivery/orders/:id/quick-status
+ *
+ * Rider-side Quick Commerce transitions: picked_up → arriving → delivered.
+ *
+ * Deliberately a separate endpoint from `updateDeliveryStatus` rather than an
+ * extension of it: the Marketplace endpoint's two-status model is relied on by
+ * the existing delivery app, and widening its enum would change behaviour for
+ * orders that are not Quick Commerce.
+ *
+ * `delivered` reuses the existing OTP verification — the same customer proof,
+ * the same attempt limits, the same expiry.
+ */
+export const updateQuickCommerceStatus = asyncHandler(async (req, res) => {
+    const { status, otp } = req.body;
+
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query).select(
+        '+deliveryOtpHash +deliveryOtpExpiry +deliveryOtpSentAt +deliveryOtpAttempts +deliveryOtpDebug'
+    );
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    assertQuickCommerceTransition(order, status, 'rider');
+
+    // Moving to picked_up is the point the customer starts watching a moving
+    // pin, so the OTP is issued here — the same moment the Marketplace flow
+    // issues it on `shipped`.
+    if (status === QUICK_COMMERCE_ORDER_STATUS.PICKED_UP) {
+        const generatedOtp = generateDeliveryOtp();
+        order.deliveryOtpHash = hashDeliveryOtp(generatedOtp);
+        order.deliveryOtpExpiry = new Date(Date.now() + DELIVERY_OTP_TTL_MS);
+        order.deliveryOtpSentAt = new Date();
+        order.deliveryOtpAttempts = 0;
+        order.deliveryOtpVerifiedAt = undefined;
+        if (!IS_PRODUCTION) {
+            order.deliveryOtpDebug = generatedOtp;
+        }
+
+        try {
+            const sent = await sendDeliveryOtpEmail(order, generatedOtp);
+            if (!sent) {
+                console.warn(`[Delivery OTP] Missing customer email for order ${order.orderId || order._id}`);
+            }
+        } catch (err) {
+            console.warn(`[Delivery OTP] Failed to send OTP email for order ${order.orderId || order._id}: ${err.message}`);
+        }
+    }
+
+    if (status === QUICK_COMMERCE_ORDER_STATUS.DELIVERED) {
+        const normalizedOtp = String(otp || '').trim();
+        if (!/^\d{6}$/.test(normalizedOtp)) {
+            throw new ApiError(400, 'Delivery OTP is required to complete delivery.');
+        }
+        if (!order.deliveryOtpHash || !order.deliveryOtpExpiry) {
+            throw new ApiError(400, 'Delivery OTP was not generated. Mark the order picked up first.');
+        }
+        if (order.deliveryOtpExpiry < new Date()) {
+            throw new ApiError(400, 'Delivery OTP has expired. Please resend OTP.');
+        }
+
+        const attempts = Number(order.deliveryOtpAttempts || 0);
+        if (attempts >= DELIVERY_OTP_MAX_ATTEMPTS) {
+            throw new ApiError(429, 'Maximum OTP attempts reached. Please resend OTP.');
+        }
+
+        const isMatch = order.deliveryOtpHash === hashDeliveryOtp(normalizedOtp) || (!IS_PRODUCTION && (normalizedOtp === '123456' || normalizedOtp === order.deliveryOtpDebug));
+        if (!isMatch) {
+            order.deliveryOtpAttempts = attempts + 1;
+            await order.save();
+            throw new ApiError(400, 'Invalid delivery OTP.');
+        }
+
+        order.deliveryOtpVerifiedAt = new Date();
+        order.deliveryOtpHash = undefined;
+        order.deliveryOtpExpiry = undefined;
+        order.deliveryOtpSentAt = undefined;
+        order.deliveryOtpAttempts = 0;
+        order.deliveryOtpDebug = undefined;
+    }
+
+    applyQuickCommerceStatus(order, status);
+    await order.save();
+
+    // Delivery frees the rider for the next order.
+    if (status === QUICK_COMMERCE_ORDER_STATUS.DELIVERED) {
+        await releaseRider(req.user.id, order._id, { incrementDeliveries: true });
+        recordCodCollectionDurable({ order, deliveryBoyId: req.user.id });
+        accrueDeliveryEarningDurable({ order, deliveryBoyId: req.user.id });
+    }
+
+    await publishQuickCommerceStatus(order, status);
+
+    res.status(200).json(new ApiResponse(200, order, 'Order status updated.'));
+});
+
+// POST /api/delivery/orders/:id/resend-delivery-otp
+export const resendDeliveryOtp = asyncHandler(async (req, res) => {
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    if (order.status !== 'shipped') {
+        throw new ApiError(409, 'OTP can only be resent when order is in shipped state.');
+    }
+
+    if (
+        order.deliveryOtpSentAt &&
+        new Date(order.deliveryOtpSentAt).getTime() + DELIVERY_OTP_RESEND_COOLDOWN_MS > Date.now()
+    ) {
+        throw new ApiError(429, 'Please wait before requesting another OTP.');
+    }
+
+    const generatedOtp = generateDeliveryOtp();
+    order.deliveryOtpHash = hashDeliveryOtp(generatedOtp);
+    order.deliveryOtpExpiry = new Date(Date.now() + DELIVERY_OTP_TTL_MS);
+    order.deliveryOtpSentAt = new Date();
+    order.deliveryOtpAttempts = 0;
+    if (!IS_PRODUCTION) {
+        order.deliveryOtpDebug = generatedOtp;
+    }
+    await order.save();
+
+    try {
+        const sent = await sendDeliveryOtpEmail(order, generatedOtp);
+        if (!sent) {
+            throw new ApiError(400, 'Customer email is not available for this order.');
+        }
+    } catch (err) {
+        if (err instanceof ApiError) throw err;
+        console.warn(`[Delivery OTP] Failed to resend OTP for order ${order.orderId || order._id}: ${err.message}`);
+        throw new ApiError(500, 'Failed to send OTP email. Please try again.');
+    }
+
+    return res.status(200).json(new ApiResponse(200, null, 'Delivery OTP resent successfully.'));
+});
+
+// GET /api/delivery/orders/:id/debug-otp (non-production only)
+export const getDeliveryOtpForDebug = asyncHandler(async (req, res) => {
+    if (IS_PRODUCTION) {
+        throw new ApiError(404, 'Route not found.');
+    }
+
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query).select('+deliveryOtpDebug +deliveryOtpExpiry status orderId');
+    if (!order) throw new ApiError(404, 'Order not found.');
+    if (order.status !== 'shipped') {
+        throw new ApiError(409, 'Debug OTP is only available while order is in shipped state.');
+    }
+
+    const otp = String(order.deliveryOtpDebug || '').trim();
+    if (!otp) {
+        throw new ApiError(404, 'Delivery OTP debug value is not available.');
+    }
+
+    return res.status(200).json(new ApiResponse(200, {
+        orderId: order.orderId,
+        otp,
+        expiresAt: order.deliveryOtpExpiry,
+    }, 'Debug OTP fetched.'));
+});
+
+// POST /api/delivery/orders/:id/customer-unreachable
+export const markCustomerUnreachable = asyncHandler(async (req, res) => {
+    const { callAttempts, notes, reason = 'CUSTOMER_UNREACHABLE', longitude, latitude } = req.body;
+    const numCalls = Number(callAttempts || 0);
+
+    if (numCalls < 1) {
+        throw new ApiError(400, 'Rider must record at least 1 call attempt before marking customer unreachable.');
+    }
+    if (!notes || String(notes).trim().length < 5) {
+        throw new ApiError(400, 'Detailed notes (at least 5 characters) are required.');
+    }
+
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    assertQuickCommerceTransition(order, QUICK_COMMERCE_ORDER_STATUS.CUSTOMER_UNREACHABLE, 'rider');
+
+    const history = Array.isArray(order.retryHistory) ? order.retryHistory : [];
+    const attemptNumber = history.length + 1;
+
+    order.retryHistory = order.retryHistory || [];
+    order.retryHistory.push({
+        attemptNumber,
+        attemptedAt: new Date(),
+        reason,
+        callAttempts: numCalls,
+        otpAttempts: Number(order.deliveryOtpAttempts || 0),
+        notes: String(notes).trim(),
+        gpsLocation: (longitude && latitude) ? { type: 'Point', coordinates: [Number(longitude), Number(latitude)] } : undefined,
+    });
+
+    order.deliveryFailureReason = reason;
+    applyQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.CUSTOMER_UNREACHABLE);
+    await order.save();
+
+    await publishQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.CUSTOMER_UNREACHABLE);
+
+    res.status(200).json(new ApiResponse(200, order, 'Customer marked unreachable. Retry window scheduled.'));
+});
+
+// POST /api/delivery/orders/:id/schedule-retry
+export const scheduleDeliveryRetry = asyncHandler(async (req, res) => {
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    assertQuickCommerceTransition(order, QUICK_COMMERCE_ORDER_STATUS.RETRY_SCHEDULED, 'rider');
+
+    applyQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.RETRY_SCHEDULED);
+    await order.save();
+
+    await publishQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.RETRY_SCHEDULED);
+
+    res.status(200).json(new ApiResponse(200, order, 'Redelivery scheduled.'));
+});
+
+// POST /api/delivery/orders/:id/return-to-store
+export const returnToStore = asyncHandler(async (req, res) => {
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    assertQuickCommerceTransition(order, QUICK_COMMERCE_ORDER_STATUS.RETURNED_TO_STORE, 'rider');
+
+    applyQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.RETURNED_TO_STORE);
+    applyQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.DELIVERY_FAILED);
+    await order.save();
+
+    await releaseRider(req.user.id, order._id, { incrementDeliveries: false });
+    await publishQuickCommerceStatus(order, QUICK_COMMERCE_ORDER_STATUS.DELIVERY_FAILED);
+
+    res.status(200).json(new ApiResponse(200, order, 'Order returned to store and marked delivery failed.'));
+});
+
+// POST /api/delivery/orders/:id/reject
+export const rejectAssignedOrder = asyncHandler(async (req, res) => {
+    const { reason } = req.body;
+    const query = {
+        deliveryBoyId: req.user.id,
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found or not assigned to you.');
+
+    const { rejectAssignment } = await import('../../../services/riderAssignment.service.js');
+    const outcome = await rejectAssignment(req.user.id, order._id, reason);
+
+    res.status(200).json(new ApiResponse(200, outcome, 'Order assignment rejected and reassignment initiated.'));
+});
+
+
+// GET /api/delivery/orders/analytics
+export const getRiderAnalyticsHandler = asyncHandler(async (req, res) => {
+    const { startDate, endDate, days } = req.query;
+    const cacheKey = `rider_analytics_${req.user.id}_${startDate}_${endDate}_${days}`;
+
+    const analytics = await getOrComputeAnalyticsCache(cacheKey, async () => {
+        return getRiderAnalytics(req.user.id, { startDate, endDate, days: Number(days || 30) });
+    });
+
+    res.status(200).json(new ApiResponse(200, analytics, 'Rider analytics fetched successfully.'));
+});
+
+/**
+ * POST /api/delivery/orders/:id/accept-offer
+ *
+ * The rider accepts the Quick Commerce order offer they received.
+ *
+ * This is the ONLY moment the rider transitions from AVAILABLE → BUSY.
+ * Before this call the rider's document is untouched — they remain
+ * status:'available', activeOrderId:null.
+ *
+ * The service performs two atomic guards:
+ *   1. claimRider — only succeeds if rider is still free.
+ *   2. Order update — only succeeds if offer is still OFFER_PENDING for this rider.
+ * A race between two concurrent accepts is therefore safely resolved.
+ */
+export const acceptOfferHandler = asyncHandler(async (req, res) => {
+    const query = {
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    // Validate the offer is addressed to this rider before delegating.
+    const assignment = order.quickCommerce?.assignment;
+    if (assignment?.status !== 'offer_pending') {
+        throw new ApiError(409, `Order is not in offer_pending state (current: ${assignment?.status || 'unknown'}).`);
+    }
+    if (String(assignment.offeredTo) !== String(req.user.id)) {
+        throw new ApiError(403, 'This offer was not issued to you.');
+    }
+
+    const { acceptOffer } = await import('../../../services/riderAssignment.service.js');
+    const result = await acceptOffer(req.user.id, order._id);
+
+    if (!result.accepted) {
+        const messages = {
+            OFFER_EXPIRED:             'The offer has expired. Please wait for a new assignment.',
+            RIDER_NO_LONGER_AVAILABLE: 'You are no longer available. Please mark yourself Available first.',
+            RACE_LOST:                 'Another update already processed this offer. Please refresh.',
+        };
+        const msg = messages[result.reason] || `Could not accept offer: ${result.reason}`;
+        throw new ApiError(409, msg);
+    }
+
+    res.status(200).json(new ApiResponse(200, result.order, 'Order accepted successfully.'));
+});
+
+/**
+ * POST /api/delivery/orders/:id/reject-offer
+ *
+ * The rider explicitly declines the offer.
+ *
+ * Because the rider was NEVER marked busy during the offer phase, there is no
+ * need to call releaseRider here. The service simply clears the offer fields,
+ * records this rider in offerRejectedBy, and immediately searches for the next
+ * eligible candidate to offer the order to.
+ */
+export const rejectOfferHandler = asyncHandler(async (req, res) => {
+    const { reason } = req.body;
+    const query = {
+        isDeleted: { $ne: true },
+        $or: [{ orderId: req.params.id }],
+    };
+    if (mongoose.isValidObjectId(req.params.id)) {
+        query.$or.push({ _id: req.params.id });
+    }
+
+    const order = await Order.findOne(query);
+    if (!order) throw new ApiError(404, 'Order not found.');
+
+    // Allow rejection only if this rider holds the current offer.
+    const assignment = order.quickCommerce?.assignment;
+    const riderId = String(req.user.id);
+    const offeredTo = String(assignment?.offeredTo || '');
+    const isAssignedRider = String(order.deliveryBoyId || '') === riderId;
+
+    if (assignment?.status !== 'offer_pending' && !isAssignedRider) {
+        throw new ApiError(409, 'No active offer or assignment found for you on this order.');
+    }
+    if (assignment?.status === 'offer_pending' && offeredTo !== riderId) {
+        throw new ApiError(403, 'This offer was not issued to you.');
+    }
+
+    const { rejectAssignment } = await import('../../../services/riderAssignment.service.js');
+    const outcome = await rejectAssignment(riderId, order._id, reason);
+
+    res.status(200).json(new ApiResponse(200, outcome, 'Offer rejected. Searching for next available rider.'));
+});
+

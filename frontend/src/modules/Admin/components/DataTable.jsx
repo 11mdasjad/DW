@@ -1,0 +1,69 @@
+/**
+ * @deprecated Admin/components/DataTable.jsx
+ * Bridged to use shared DS DataTable primitive.
+ *
+ * API differences bridged:
+ *   Admin: columns.label  → DS: columns.title
+ *   Admin: itemsPerPage   → DS: pageSize
+ *   Admin: onRowClick (row-level click) → preserved via column render wrapper
+ *   Admin: serverSidePagination + onPageChange → passed through
+ *
+ * All 30 existing import sites continue to work without changes.
+ */
+import React from 'react';
+import { DataTable as DSDataTable } from '../../../shared/components/Dashboard/DataTable';
+
+const DataTable = ({
+  data = [],
+  columns = [],
+  loading = false,
+  pagination = true,
+  itemsPerPage = 10,
+  sortable = true,
+  sortConfig,
+  onSortChange,
+  onRowClick,
+  className = '',
+  serverSidePagination = false,
+  totalItems = 0,
+  totalPages = null,
+  currentPage: externalCurrentPage,
+  onPageChange,
+  showSizeChanger = false,
+  onPageSizeChange,
+  pageSizeOptions = [25, 50, 100, 250, 500, 'All'],
+}) => {
+  // Map Admin column format (label) → DS column format (title)
+  const mappedColumns = columns.map((col) => ({
+    ...col,
+    title: col.title || col.label || col.key,
+    sortable: sortable && col.sortable !== false,
+    render: col.render,
+  }));
+
+  return (
+    <DSDataTable
+      columns={mappedColumns}
+      data={data}
+      loading={loading}
+      pageSize={itemsPerPage}
+      className={className}
+      emptyTitle="No data available"
+      emptyDescription="There are no items to display."
+      searchable={false}
+      pagination={pagination}
+      sortConfig={sortConfig}
+      onSortChange={onSortChange}
+      currentPage={externalCurrentPage}
+      onPageChange={onPageChange}
+      serverSidePagination={serverSidePagination}
+      totalItems={totalItems}
+      totalPages={totalPages}
+      showSizeChanger={showSizeChanger}
+      onPageSizeChange={onPageSizeChange}
+      pageSizeOptions={pageSizeOptions}
+    />
+  );
+};
+
+export default DataTable;

@@ -1,0 +1,896 @@
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  FiSearch,
+  FiEye,
+  FiCheckCircle,
+  FiXCircle,
+  FiDollarSign,
+  FiTrash2,
+  FiEdit,
+  FiRefreshCw,
+} from "react-icons/fi";
+import { motion } from "framer-motion";
+import DataTable from "../../components/DataTable";
+import ExportButton from "../../components/ExportButton";
+import Badge from "../../../../shared/components/Badge";
+import ConfirmModal from "../../components/ConfirmModal";
+import AnimatedSelect from "../../components/AnimatedSelect";
+import { formatPrice } from "../../../../shared/utils/helpers";
+import { useVendorStore } from "../../store/vendorStore";
+import { useAdminAuthStore } from "../../store/adminStore";
+import { PERMISSIONS } from "../../config/permissions";
+import toast from "react-hot-toast";
+import { VendorWholesaleBadge } from "../../../../shared/components/WholesaleBadge";
+import { VendorTypes, VENDOR_TYPE_LABELS } from "../../../../shared/config/vendorCapabilities";
+import { getAllVendors } from "../../services/adminService";
+
+const ManageVendors = () => {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { admin, can } = useAdminAuthStore();
+  const { updateVendorStatus, updateCommissionRate, updateVendorEmail, deleteVendor } =
+    useVendorStore();
+
+  const [vendors, setVendors] = useState([]);
+  const [totalVendors, setTotalVendors] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [exportVendors, setExportVendors] = useState([]);
+
+  const urlPage = parseInt(searchParams.get("page") || "1", 10);
+  const currentPage = isNaN(urlPage) || urlPage < 1 ? 1 : urlPage;
+  const pageSizeParam = searchParams.get("pageSize") || "50";
+  const pageSize = String(pageSizeParam).toLowerCase() === "all" ? "All" : (parseInt(pageSizeParam, 10) || 50);
+
+  const selectedStatus = searchParams.get("status") || "all";
+  const selectedVendorType = searchParams.get("vendorType") || "all";
+  const queryParam = searchParams.get("search") || "";
+
+  const [searchInput, setSearchInput] = useState(queryParam);
+  useEffect(() => {
+    setSearchInput(queryParam);
+  }, [queryParam]);
+
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    type: null, // 'approve', 'activate', 'suspend', 'commission', 'hard_delete', 'email'
+    vendorId: null,
+    vendorName: null,
+  });
+  const [commissionRate, setCommissionRate] = useState("");
+  const [statusReason, setStatusReason] = useState("");
+  const [newVendorEmail, setNewVendorEmail] = useState("");
+  const [deleteConfirmationInput, setDeleteConfirmationInput] = useState("");
+
+  const updateFilters = useCallback((updates, resetPage = false) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      Object.entries(updates).forEach(([key, val]) => {
+        if (val === undefined || val === null || val === "" || val === "all") {
+          next.delete(key);
+        } else {
+          next.set(key, String(val));
+        }
+      });
+      if (resetPage) {
+        next.delete("page");
+      }
+      return next;
+    });
+  }, [setSearchParams]);
+
+  // Debounce search query update to URL
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput.trim() !== queryParam) {
+        updateFilters({ search: searchInput.trim() }, true);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput, queryParam, updateFilters]);
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (searchInput.trim() !== queryParam) {
+        updateFilters({ search: searchInput.trim() }, true);
+      }
+    }
+  };
+
+  const handlePageChange = useCallback((newPage) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (newPage > 1) {
+        next.set("page", String(newPage));
+      } else {
+        next.delete("page");
+      }
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const handlePageSizeChange = useCallback((newSize) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (String(newSize).toLowerCase() !== "50") {
+        next.set("pageSize", String(newSize));
+      } else {
+        next.delete("pageSize");
+      }
+      next.delete("page");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const handleClearFilters = useCallback(() => {
+    setSearchInput("");
+    setSearchParams((prev) => {
+      const next = new URLSearchParams();
+      const currentSize = prev.get("pageSize");
+      if (currentSize && currentSize !== "50") {
+        next.set("pageSize", currentSize);
+      }
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const hasActiveFilters = Boolean(
+    queryParam ||
+    (selectedStatus && selectedStatus !== "all") ||
+    (selectedVendorType && selectedVendorType !== "all")
+  );
+
+  const fetchVendorList = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const numericLimit = String(pageSize).toLowerCase() === "all" ? 1000 : Number(pageSize);
+      const params = {
+        page: currentPage,
+        limit: numericLimit,
+        status: selectedStatus !== "all" ? selectedStatus : undefined,
+        vendorType: selectedVendorType !== "all" ? selectedVendorType : undefined,
+        search: queryParam.trim() || undefined,
+      };
+      const response = await getAllVendors(params);
+      const payload = response?.data ?? response;
+      const list = Array.isArray(payload?.vendors)
+        ? payload.vendors.map((v) => ({
+            ...v,
+            id: String(v.id || v._id || ""),
+            _id: String(v._id || v.id || ""),
+          }))
+        : [];
+      setVendors(list);
+      setTotalVendors(typeof payload?.total === "number" ? payload.total : list.length);
+      setTotalPages(Math.max(Number(payload?.pages) || 1, 1));
+    } catch (err) {
+      console.error("Failed to load vendors:", err);
+      setVendors([]);
+      setTotalVendors(0);
+      setTotalPages(1);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, pageSize, selectedStatus, selectedVendorType, queryParam]);
+
+  useEffect(() => {
+    fetchVendorList();
+  }, [fetchVendorList]);
+
+  // Maintain full filtered list for CSV Export
+  useEffect(() => {
+    let active = true;
+    const fetchFullExport = async () => {
+      try {
+        const params = {
+          page: 1,
+          limit: 1000,
+          status: selectedStatus !== "all" ? selectedStatus : undefined,
+          vendorType: selectedVendorType !== "all" ? selectedVendorType : undefined,
+          search: queryParam.trim() || undefined,
+        };
+        const res = await getAllVendors(params);
+        const payload = res?.data ?? res;
+        const list = Array.isArray(payload?.vendors)
+          ? payload.vendors.map((v) => ({
+              ...v,
+              id: String(v.id || v._id || ""),
+              _id: String(v._id || v.id || ""),
+            }))
+          : [];
+        if (active) {
+          setExportVendors(list);
+        }
+      } catch {
+        if (active) {
+          setExportVendors(vendors);
+        }
+      }
+    };
+    fetchFullExport();
+    return () => {
+      active = false;
+    };
+  }, [selectedStatus, selectedVendorType, queryParam, vendors]);
+
+  // Safe clamping only when data has loaded
+  useEffect(() => {
+    if (!isLoading && totalVendors > 0 && currentPage > totalPages) {
+      handlePageChange(totalPages);
+    }
+  }, [isLoading, totalVendors, currentPage, totalPages, handlePageChange]);
+
+  // Get vendor statistics
+  const getVendorStats = (vendorId) => {
+    const vendor = vendors.find((v) => String(v.id || v._id) === String(vendorId));
+    return {
+      totalOrders: vendor?.totalOrders || 0,
+      totalEarnings: vendor?.totalEarnings || 0,
+      pendingEarnings: vendor?.pendingEarnings || 0,
+      commissionRate: vendor?.commissionRate || 0,
+    };
+  };
+
+  const columns = [
+    {
+      key: "storeName",
+      label: "Store Name",
+      sortable: true,
+      render: (value, row) => (
+        <div className="flex items-center gap-3">
+          {row.storeLogo && (
+            <img
+              src={row.storeLogo}
+              alt={value}
+              className="w-10 h-10 object-cover rounded-lg"
+              onError={(e) => {
+                e.target.style.display = "none";
+              }}
+            />
+          )}
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-gray-800">
+                {value || row.name}
+              </span>
+              {(row.channels?.retail?.status === 'active' || row.sellingChannels?.retail?.enabled) && (
+                <Badge variant="neutral" size="sm">Retail</Badge>
+              )}
+              {(row.channels?.wholesale?.status === 'active' || row.sellingChannels?.wholesale?.enabled || row.vendorType === 'wholesale') && (
+                <Badge variant="success" size="sm">Wholesale</Badge>
+              )}
+              {(row.channels?.quickCommerce?.status === 'active' || row.sellingChannels?.quickCommerce?.enabled || row.vendorType === 'quick_commerce') && (
+                <Badge variant="info" size="sm">Quick Commerce</Badge>
+              )}
+              {Object.values(row.channels || {}).some((c) => c?.status === 'requested') && (
+                <span
+                  title="Vendor has pending selling channel requests"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/vendors/${row.id}?tab=channels`);
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer hover:bg-amber-100">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  Channel Request
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">{row.name}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "email",
+      label: "Email",
+      sortable: true,
+      render: (value, row) => (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm text-gray-700">{value}</span>
+          {(admin?.role === "superadmin" || can(PERMISSIONS.VENDORS_EDIT)) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNewVendorEmail(row.email || "");
+                setActionModal({
+                  isOpen: true,
+                  type: "email",
+                  vendorId: row.id,
+                  vendorName: row.storeName || row.name,
+                });
+              }}
+              className="p-1 text-gray-400 hover:text-blue-600 rounded transition-colors"
+              title="Edit Vendor Email"
+            >
+              <FiEdit className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "status",
+      label: "Status",
+      sortable: true,
+      render: (value) => (
+        <Badge
+          variant={
+            value === "approved"
+              ? "success"
+              : value === "pending"
+                ? "warning"
+                : "error"
+          }>
+          {value?.toUpperCase() || "N/A"}
+        </Badge>
+      ),
+    },
+    {
+      key: "commissionRate",
+      label: "Commission",
+      sortable: true,
+      render: (value, row) => {
+        const rate = value || row.commissionRate || 0;
+        return (
+          <span className="text-sm font-semibold text-gray-800">
+            {(rate * 100).toFixed(1)}%
+          </span>
+        );
+      },
+    },
+    {
+      key: "stats",
+      label: "Performance",
+      sortable: false,
+      render: (_, row) => {
+        const stats = getVendorStats(row.id);
+        return (
+          <div className="text-xs">
+            <p className="text-gray-700">
+              <span className="font-semibold">{stats.totalOrders}</span> orders
+            </p>
+            <p className="text-gray-500">
+              {formatPrice(stats.totalEarnings)} earned
+            </p>
+          </div>
+        );
+      },
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      sortable: false,
+      render: (_, row) => {
+        const canDelete = admin?.role === "superadmin" || can(PERMISSIONS.VENDORS_DELETE);
+        const canApprove = admin?.role === "superadmin" || can(PERMISSIONS.VENDORS_APPROVE);
+        const canEdit = admin?.role === "superadmin" || can(PERMISSIONS.VENDORS_EDIT);
+
+        return (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/admin/vendors/${row.id}`);
+              }}
+              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              title="View Details">
+              <FiEye />
+            </button>
+            {row.status === "pending" && canApprove && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionModal({
+                    isOpen: true,
+                    type: "approve",
+                    vendorId: row.id,
+                    vendorName: row.storeName || row.name,
+                  });
+                }}
+                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                title="Approve Vendor">
+                <FiCheckCircle />
+              </button>
+            )}
+            {row.status === "approved" && canApprove && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionModal({
+                    isOpen: true,
+                    type: "suspend",
+                    vendorId: row.id,
+                    vendorName: row.storeName || row.name,
+                  });
+                }}
+                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="Suspend Vendor">
+                <FiXCircle />
+              </button>
+            )}
+            {row.status === "suspended" && canApprove && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionModal({
+                    isOpen: true,
+                    type: "activate",
+                    vendorId: row.id,
+                    vendorName: row.storeName || row.name,
+                  });
+                }}
+                className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                title="Activate Vendor">
+                <FiCheckCircle />
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const vendor = vendors.find((v) => v.id === row.id);
+                  setCommissionRate(
+                    ((vendor?.commissionRate || 0) * 100).toFixed(1)
+                  );
+                  setActionModal({
+                    isOpen: true,
+                    type: "commission",
+                    vendorId: row.id,
+                    vendorName: row.storeName || row.name,
+                  });
+                }}
+                className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                title="Update Commission Rate">
+                <FiDollarSign />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteConfirmationInput("");
+                  setActionModal({
+                    isOpen: true,
+                    type: "hard_delete",
+                    vendorId: row.id,
+                    vendorName: row.storeName || row.name,
+                  });
+                }}
+                className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                title="Permanently Delete Test Vendor">
+                <FiTrash2 />
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
+  const handleApprove = async () => {
+    const targetVendor = vendors.find(
+      (v) => String(v.id || v._id) === String(actionModal.vendorId)
+    );
+    const requestedChannels = [
+      targetVendor?.channels?.retail?.status === "requested" && "retail",
+      targetVendor?.channels?.wholesale?.status === "requested" && "wholesale",
+      targetVendor?.channels?.quickCommerce?.status === "requested" && "quick_commerce",
+    ].filter(Boolean);
+    const approvedChannels =
+      requestedChannels.length > 0
+        ? requestedChannels
+        : [targetVendor?.vendorType || "retail"];
+
+    const success = await updateVendorStatus(
+      actionModal.vendorId,
+      "approved",
+      "",
+      null,
+      approvedChannels
+    );
+    if (success) {
+      toast.success("Vendor approved successfully");
+      setActionModal({
+        isOpen: false,
+        type: null,
+        vendorId: null,
+        vendorName: null,
+      });
+      fetchVendorList();
+    }
+  };
+
+  const handleActivate = async () => {
+    const success = await updateVendorStatus(actionModal.vendorId, "approved");
+    if (success) {
+      toast.success("Vendor activated successfully");
+      setActionModal({
+        isOpen: false,
+        type: null,
+        vendorId: null,
+        vendorName: null,
+      });
+      fetchVendorList();
+    }
+  };
+
+  const handleSuspend = async () => {
+    const success = await updateVendorStatus(
+      actionModal.vendorId,
+      "suspended",
+      statusReason.trim()
+    );
+    if (success) {
+      toast.success("Vendor suspended successfully");
+      setActionModal({
+        isOpen: false,
+        type: null,
+        vendorId: null,
+        vendorName: null,
+      });
+      setStatusReason("");
+      fetchVendorList();
+    }
+  };
+
+  const handleHardDelete = async () => {
+    if (deleteConfirmationInput !== "DELETE") {
+      toast.error("Please type DELETE to confirm permanent deletion");
+      return;
+    }
+    try {
+      await deleteVendor(actionModal.vendorId);
+      toast.success("Vendor deleted permanently");
+      setActionModal({
+        isOpen: false,
+        type: null,
+        vendorId: null,
+        vendorName: null,
+      });
+      setDeleteConfirmationInput("");
+      fetchVendorList();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to delete vendor");
+    }
+  };
+
+  const handleCommissionUpdate = async () => {
+    const rate = parseFloat(commissionRate) / 100;
+    if (isNaN(rate) || rate < 0 || rate > 1) {
+      toast.error("Please enter a valid commission rate (0-100%)");
+      return;
+    }
+    const success = await updateCommissionRate(actionModal.vendorId, rate);
+    if (success) {
+      toast.success("Commission rate updated successfully");
+      setActionModal({
+        isOpen: false,
+        type: null,
+        vendorId: null,
+        vendorName: null,
+      });
+      setCommissionRate("");
+      fetchVendorList();
+    } else {
+      toast.error("Failed to update commission rate");
+    }
+  };
+
+  const handleVendorEmailUpdate = async () => {
+    const trimmed = newVendorEmail.trim().toLowerCase();
+    if (!trimmed) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+    try {
+      const updated = await updateVendorEmail(actionModal.vendorId, trimmed);
+      if (updated) {
+        toast.success("Vendor email updated successfully");
+        setActionModal({
+          isOpen: false,
+          type: null,
+          vendorId: null,
+          vendorName: null,
+        });
+        setNewVendorEmail("");
+        fetchVendorList();
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update vendor email");
+    }
+  };
+
+  const getModalContent = () => {
+    switch (actionModal.type) {
+      case "email":
+        return {
+          title: "Update Vendor Email",
+          message: `Change email address for "${actionModal.vendorName}"`,
+          confirmText: "Save Email",
+          onConfirm: handleVendorEmailUpdate,
+          type: "info",
+          confirmDisabled: !newVendorEmail.trim(),
+          customContent: (
+            <div className="mt-4">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                New Email Address <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                value={newVendorEmail}
+                onChange={(e) => setNewVendorEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="vendor@example.com"
+                autoFocus
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                The vendor will use this email address to log in.
+              </p>
+            </div>
+          ),
+        };
+      case "approve":
+        return {
+          title: "Approve Vendor?",
+          message: `Are you sure you want to approve "${actionModal.vendorName}"? They will be able to start selling on the platform.`,
+          confirmText: "Approve",
+          onConfirm: handleApprove,
+          type: "success",
+        };
+      case "activate":
+        return {
+          title: "Activate Vendor?",
+          message: `Are you sure you want to activate "${actionModal.vendorName}"? The vendor will be restored to approved status and allowed to operate on their configured selling channels.`,
+          confirmText: "Activate Vendor",
+          onConfirm: handleActivate,
+          type: "success",
+        };
+      case "suspend":
+        return {
+          title: "Suspend Vendor?",
+          message: `Are you sure you want to suspend "${actionModal.vendorName}"? They will not be able to access their vendor dashboard.`,
+          confirmText: "Suspend",
+          onConfirm: handleSuspend,
+          type: "danger",
+          customContent: (
+            <div className="mt-4">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Suspension Reason (optional)
+              </label>
+              <textarea
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-amber-400"
+                placeholder="Provide a reason for suspension..."
+              />
+            </div>
+          ),
+        };
+      case "hard_delete":
+        return {
+          title: "Permanently Delete Vendor?",
+          message: `This will permanently remove "${actionModal.vendorName}" and all associated products, documents, and settings from the database. This action CANNOT be undone.`,
+          confirmText: "Permanently Delete",
+          onConfirm: handleHardDelete,
+          type: "danger",
+          confirmDisabled: deleteConfirmationInput !== "DELETE",
+          customContent: (
+            <div className="mt-4 space-y-3">
+              <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-300">
+                <p className="font-semibold">Warning: Destructive Permanent Action</p>
+                <p className="mt-1">Vendors with active customer orders cannot be deleted. Use this only for test/QA vendors.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
+                  Type <span className="font-mono text-red-600 dark:text-red-400 font-bold">DELETE</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmationInput}
+                  onChange={(e) => setDeleteConfirmationInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
+                  placeholder="DELETE"
+                  autoFocus
+                />
+              </div>
+            </div>
+          ),
+        };
+      case "commission":
+        return {
+          title: "Update Commission Rate",
+          message: `Update commission rate for "${actionModal.vendorName}"`,
+          confirmText: "Update",
+          onConfirm: handleCommissionUpdate,
+          type: "info",
+          customContent: (
+            <div className="mt-4">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                Commission Rate (%)
+              </label>
+              <input
+                type="number"
+                value={commissionRate}
+                onChange={(e) => setCommissionRate(e.target.value)}
+                min="0"
+                max="100"
+                step="0.1"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:focus:ring-amber-400"
+                placeholder="10.0"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Enter a value between 0 and 100
+              </p>
+            </div>
+          ),
+        };
+      default:
+        return null;
+    }
+  };
+
+  const modalContent = getModalContent();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="lg:hidden">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
+            Manage Vendors
+          </h1>
+          <p className="text-sm sm:text-base text-gray-600">
+            View and manage all vendors on the platform
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+        {/* Filters Section */}
+        <div className="mb-6 pb-6 border-b border-gray-200">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
+            <div className="relative flex-1 w-full sm:min-w-[200px]">
+              <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Search vendors..."
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm sm:text-base"
+              />
+            </div>
+
+            <AnimatedSelect
+              value={selectedStatus}
+              onChange={(val) => {
+                const newStatus = typeof val === 'object' && val?.target ? val.target.value : val;
+                updateFilters({ status: newStatus }, true);
+              }}
+              options={[
+                { value: "all", label: "All Status" },
+                { value: "approved", label: "Approved" },
+                { value: "pending", label: "Pending" },
+                { value: "suspended", label: "Suspended" },
+                { value: "rejected", label: "Rejected" },
+              ]}
+              className="w-full sm:w-auto min-w-[140px]"
+            />
+
+            <AnimatedSelect
+              value={selectedVendorType}
+              onChange={(val) => {
+                const newType = typeof val === 'object' && val?.target ? val.target.value : val;
+                updateFilters({ vendorType: newType }, true);
+              }}
+              options={[
+                { value: "all", label: "All Vendor Types" },
+                { value: VendorTypes.RETAIL, label: VENDOR_TYPE_LABELS[VendorTypes.RETAIL] },
+                { value: VendorTypes.WHOLESALE, label: VENDOR_TYPE_LABELS[VendorTypes.WHOLESALE] },
+                { value: VendorTypes.QUICK_COMMERCE, label: VENDOR_TYPE_LABELS[VendorTypes.QUICK_COMMERCE] },
+              ]}
+              className="w-full sm:w-auto min-w-[170px]"
+            />
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium whitespace-nowrap"
+                title="Clear all filters and reset pagination">
+                <FiRefreshCw className="text-xs" />
+                <span>Clear Filters</span>
+              </button>
+            )}
+
+            <div className="w-full sm:w-auto">
+              <ExportButton
+                data={exportVendors.length > 0 ? exportVendors : vendors}
+                headers={[
+                  {
+                    label: "Store Name",
+                    accessor: (row) => row.storeName || row.name,
+                  },
+                  { label: "Email", accessor: (row) => row.email },
+                  { label: "Status", accessor: (row) => row.status },
+                  {
+                    label: "Vendor Type",
+                    accessor: (row) => {
+                      const types = [];
+                      if (row.channels?.retail?.status === 'active' || row.sellingChannels?.retail?.enabled || row.vendorType === 'retail') types.push('Retail');
+                      if (row.channels?.wholesale?.status === 'active' || row.sellingChannels?.wholesale?.enabled || row.vendorType === 'wholesale') types.push('Wholesale');
+                      if (row.channels?.quickCommerce?.status === 'active' || row.sellingChannels?.quickCommerce?.enabled || row.vendorType === 'quick_commerce') types.push('Quick Commerce');
+                      return types.join(', ') || row.vendorType || 'N/A';
+                    },
+                  },
+                  {
+                    label: "Commission Rate",
+                    accessor: (row) =>
+                      `${((row.commissionRate || 0) * 100).toFixed(1)}%`,
+                  },
+                  {
+                    label: "Join Date",
+                    accessor: (row) =>
+                      row.createdAt || row.joinDate ? new Date(row.createdAt || row.joinDate).toLocaleDateString() : "N/A",
+                  },
+                ]}
+                filename="vendors"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* DataTable */}
+        <DataTable
+          data={vendors}
+          columns={columns}
+          loading={isLoading}
+          pagination={true}
+          serverSidePagination={true}
+          totalItems={totalVendors}
+          totalPages={totalPages}
+          itemsPerPage={pageSize}
+          currentPage={currentPage}
+          onPageChange={handlePageChange}
+          showSizeChanger={true}
+          onPageSizeChange={handlePageSizeChange}
+          pageSizeOptions={[25, 50, 100, 250, 500, 'All']}
+          onRowClick={(row) => navigate(`/admin/vendors/${row.id}`)}
+        />
+      </div>
+
+      {/* Action Modals */}
+      {modalContent && (
+        <ConfirmModal
+          isOpen={actionModal.isOpen}
+          onClose={() => {
+            setActionModal({
+              isOpen: false,
+              type: null,
+              vendorId: null,
+              vendorName: null,
+            });
+            setCommissionRate("");
+            setStatusReason("");
+          }}
+          onConfirm={modalContent.onConfirm}
+          title={modalContent.title}
+          message={modalContent.message}
+          confirmText={modalContent.confirmText}
+          cancelText="Cancel"
+          type={modalContent.type}
+          customContent={modalContent.customContent}
+          confirmDisabled={modalContent.confirmDisabled}
+        />
+      )}
+    </motion.div>
+  );
+};
+
+export default ManageVendors;

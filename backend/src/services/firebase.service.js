@@ -1,0 +1,140 @@
+import DeviceToken from '../models/DeviceToken.model.js';
+
+let isFirebaseConfigured = false;
+let messagingService = null;
+
+const initFirebase = async () => {
+    if (messagingService) return isFirebaseConfigured;
+    try {
+        const { initializeApp, cert, getApps } = await import('firebase-admin/app');
+        const { getMessaging } = await import('firebase-admin/messaging');
+
+        const projectId = process.env.FIREBASE_PROJECT_ID;
+        const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+        if (process.env.GOOGLE_APPLICATION_CREDENTIALS || (projectId && clientEmail && privateKey)) {
+            if (getApps().length === 0) {
+                if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                    initializeApp();
+                    console.log('[Firebase] Initialized Admin SDK with GOOGLE_APPLICATION_CREDENTIALS');
+                } else {
+                    const formattedPrivateKey = String(privateKey).replace(/\\n/g, '\n');
+                    initializeApp({
+                        credential: cert({
+                            projectId,
+                            clientEmail,
+                            privateKey: formattedPrivateKey,
+                        }),
+                    });
+                    console.log(`[Firebase] Initialized Admin SDK for project "${projectId}"`);
+                }
+            }
+            messagingService = getMessaging();
+            isFirebaseConfigured = true;
+        } else {
+            console.warn('[Firebase] Credentials incomplete. FCM Push running in fallback mode.');
+        }
+    } catch (err) {
+        console.warn(`[Firebase] Push fallback active (${err.message}). DB & Socket notifications remain active.`);
+        isFirebaseConfigured = false;
+    }
+    return isFirebaseConfigured;
+};
+
+// Initialize asynchronously
+initFirebase().catch(() => null);
+
+export const isFcmAvailable = () => isFirebaseConfigured;
+
+/**
+ * Send FCM push notification to multiple device tokens
+ */
+export const sendMulticastPushNotification = async ({ tokens = [], title, body, data = {}, image = '' }) => {
+    if (!tokens || tokens.length === 0) return { successCount: 0, failureCount: 0 };
+    await initFirebase();
+
+    if (!isFirebaseConfigured || !messagingService) {
+        return { successCount: 0, failureCount: tokens.length, fallback: true };
+    }
+
+    const clientUrl = process.env.CLIENT_URL || 'https://dwellmart.in';
+    const baseUrl = clientUrl.endsWith('/') ? clientUrl.slice(0, -1) : clientUrl;
+    const defaultIconUrl = `${baseUrl}/favicon.png`;
+    const defaultBadgeUrl = `${baseUrl}/favicon.png`;
+    const notificationIcon = image && image.startsWith('http') ? image : defaultIconUrl;
+    const actionLink = data?.actionUrl
+        ? (data.actionUrl.startsWith('http') ? data.actionUrl : `${baseUrl}${data.actionUrl.startsWith('/') ? '' : '/'}${data.actionUrl}`)
+        : `${baseUrl}/notifications`;
+
+    const payload = {
+        notification: {
+            title: String(title || ''),
+            body: String(body || ''),
+            ...(image ? { imageUrl: image } : {}),
+        },
+        data: Object.fromEntries(
+            Object.entries({
+                ...data,
+                ...(image ? { image } : {}),
+            }).map(([k, v]) => [String(k), String(v ?? '')])
+        ),
+        webpush: {
+            headers: {
+                Urgency: 'high',
+            },
+            notification: {
+                title: String(title || ''),
+                body: String(body || ''),
+                icon: notificationIcon,
+                image: image || notificationIcon,
+                badge: defaultBadgeUrl,
+                requireInteraction: true,
+            },
+            fcmOptions: {
+                link: actionLink,
+            },
+        },
+        tokens,
+    };
+
+    try {
+        const response = await messagingService.sendEachForMulticast(payload);
+
+        // Cleanup invalid or expired tokens automatically and log exact FCM errors
+        const invalidTokens = [];
+        const fcmErrors = [];
+        response.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+                const code = resp.error?.code || 'unknown_error';
+                const message = resp.error?.message || 'FCM delivery failed';
+                fcmErrors.push({ code, message });
+                console.warn(`[Firebase] Push failed for token [${tokens[idx]?.slice(0, 15)}...]: [${code}] ${message}`);
+
+                if (
+                    code === 'messaging/invalid-registration-token' ||
+                    code === 'messaging/registration-token-not-registered'
+                ) {
+                    invalidTokens.push(tokens[idx]);
+                }
+            }
+        });
+
+        if (invalidTokens.length > 0) {
+            await DeviceToken.updateMany(
+                { fcmToken: { $in: invalidTokens } },
+                { $set: { isActive: false, lastSeen: new Date() } }
+            );
+            console.log(`[Firebase] Marked ${invalidTokens.length} stale FCM tokens as inactive.`);
+        }
+
+        return {
+            successCount: response.successCount,
+            failureCount: response.failureCount,
+            fcmErrors,
+        };
+    } catch (error) {
+        console.error('[Firebase] Multicast push dispatch error:', error.message);
+        return { successCount: 0, failureCount: tokens.length, error: error.message, fcmErrors: [{ code: 'dispatch_error', message: error.message }] };
+    }
+};

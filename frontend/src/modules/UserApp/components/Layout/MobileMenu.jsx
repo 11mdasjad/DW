@@ -1,0 +1,280 @@
+import { useEffect } from "react";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { FiX, FiHome, FiGrid, FiTag, FiUser, FiShoppingBag, FiHeart, FiLogOut, FiHelpCircle, FiBell, FiBox, FiChevronRight } from "react-icons/fi";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useAuthStore } from "../../../../shared/store/authStore";
+import { useWishlistStore } from "../../../../shared/store/wishlistStore";
+import { useUserNotificationStore } from "../../store/userNotificationStore";
+import { loginLogo } from "../../../../shared/utils/imagePaths";
+import LanguageSelector from "../../../../shared/components/LanguageSelector";
+import CurrencySelector from "../../../../shared/components/CurrencySelector";
+import { usePageTranslation } from "../../../../hooks/usePageTranslation";
+
+const MobileMenu = ({ isOpen, onClose }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isWholesale = location.pathname.startsWith("/wholesale") || location.pathname.startsWith("/b2b");
+  const { user, isAuthenticated, logout } = useAuthStore();
+  const wishlistCount = useWishlistStore((state) => state.getItemCount());
+  const unreadCount = useUserNotificationStore((state) => state.unreadCount);
+  const { getTranslatedText: t } = usePageTranslation(["Home", "Shop", "Categories", "Exclusive Offers", "Track Order", "My Profile", "My Orders", "Wishlist", "Notifications", "Become a Seller", "Help Center", "Sign In / Register", "Logout", "Personal Space", "Support", "Member", "Dwell Mart Pro"]);
+
+  // Prevent background scroll
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100vh';
+    } else {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+    };
+  }, [isOpen]);
+
+  const handleLogout = () => {
+    logout();
+    onClose();
+    navigate("/home");
+  };
+
+  const mainLinks = [
+    { label: t("Home"), icon: FiHome, path: isWholesale ? "/wholesale" : "/home" },
+    { label: t("Shop"), icon: FiShoppingBag, path: "/shop" },
+    { label: t("Categories"), icon: FiGrid, path: isWholesale ? "/wholesale/categories" : "/categories" },
+    { label: t("Exclusive Offers"), icon: FiTag, path: "/offers" },
+    { label: t("Track Order"), icon: FiShoppingBag, path: isAuthenticated ? "/orders" : "/login" },
+  ];
+
+  const personalLinks = [
+    { label: t("My Profile"), icon: FiUser, path: "/profile" },
+    { label: t("My Orders"), icon: FiShoppingBag, path: "/orders" },
+    { label: t("Wishlist"), icon: FiHeart, path: "/wishlist", badge: wishlistCount },
+    { label: t("Notifications"), icon: FiBell, path: "/notifications", badge: unreadCount },
+  ];
+
+  const secondaryLinks = [
+    { label: t("Become a Seller"), icon: FiTag, path: "/sell-on-dwellmart", highlight: true },
+    { label: t("Help Center"), icon: FiHelpCircle, path: "/support" },
+  ];
+
+  const menuContent = (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 z-[10005] backdrop-blur-[2px]"
+            style={{ touchAction: 'none' }}
+          />
+
+          {/* Sidebar */}
+          <motion.div
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ type: "tween", duration: 0.3, ease: "circOut" }}
+            className="fixed top-0 left-0 bottom-0 w-[280px] bg-[#0c0c0c] z-[10006] flex flex-col shadow-2xl border-r border-white/5"
+            style={{ overscrollBehavior: 'contain' }}
+          >
+            {/* Header / Brand */}
+            <div className="flex items-center justify-between px-5 pt-7 pb-4 border-b border-white/5 bg-gradient-to-b from-white/5 to-transparent flex-shrink-0">
+              <Link to="/home" onClick={onClose} className="flex-shrink-0 flex items-center">
+                <img
+                  src={loginLogo}
+                  alt="Dwell Mart"
+                  className="h-11 sm:h-12 w-auto max-w-[175px] object-contain drop-shadow-md"
+                />
+              </Link>
+              <button 
+                onClick={onClose}
+                className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 text-white/50 hover:text-white transition-colors"
+                aria-label="Close menu"
+              >
+                <FiX className="text-2xl" />
+              </button>
+            </div>
+
+            {/* Auth Section */}
+            <div className="px-6 py-6 flex-shrink-0">
+              {isAuthenticated ? (
+                <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
+                  <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 border border-amber-500/30">
+                    <FiUser className="text-xl text-amber-400" />
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <p className="text-white text-base font-bold truncate tracking-tight">{user?.name}</p>
+                    <p className="text-white/40 text-xs truncate uppercase tracking-widest font-medium opacity-50">{user?.role || t('Member')}</p>
+                  </div>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  onClick={onClose}
+                  className="block w-full py-4 px-6 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-center rounded-xl text-sm font-black uppercase tracking-wider transition-all shadow-xl shadow-amber-500/20 border border-amber-400/30"
+                >
+                  {t("Sign In / Register")}
+                </Link>
+              )}
+            </div>
+
+            {/* Scrollable Nav - Fixed scroll bleed */}
+            <div className="flex-1 overflow-y-auto pt-2 pb-10 scrollbar-hide px-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+              {/* Preferences Section: Language & Currency Dropdowns */}
+              <div className="space-y-3 mb-6 px-1">
+                <div className="relative z-20">
+                  <p className="px-1 text-[10px] font-black text-white/30 uppercase tracking-[0.25em] mb-1.5 scale-95 origin-left">Language</p>
+                  <LanguageSelector variant="mobile" />
+                </div>
+
+                <div className="relative z-10">
+                  <p className="px-1 text-[10px] font-black text-white/30 uppercase tracking-[0.25em] mb-1.5 scale-95 origin-left">Currency</p>
+                  <CurrencySelector variant="mobile" />
+                </div>
+              </div>
+
+              {/* Marketplace Experience Selector (Mobile) */}
+              <div className="mb-6 px-1 space-y-2">
+                <p className="px-1 text-[10px] font-black text-amber-400 uppercase tracking-[0.25em] mb-2 scale-95 origin-left">
+                  Marketplace Shopping Modes
+                </p>
+
+                {/* Retail Store */}
+                <Link
+                  to="/retail"
+                  onClick={onClose}
+                  className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-amber-500/15 via-amber-400/5 to-transparent border border-amber-400/30 hover:border-amber-400 text-left transition-all"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-amber-400 text-black flex items-center justify-center font-bold text-base shrink-0 shadow-sm">
+                      <FiShoppingBag />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-white">Retail Store</span>
+                        <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300">B2C</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 truncate">Shop for everyday needs</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="text-gray-400 text-sm shrink-0" />
+                </Link>
+
+                {/* Wholesale Hub */}
+                <Link
+                  to="/wholesale"
+                  onClick={onClose}
+                  className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-zinc-800/80 via-zinc-900 to-black border border-amber-500/20 hover:border-amber-400 text-left transition-all"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-zinc-800 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold text-base shrink-0 shadow-sm">
+                      <FiBox />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black text-white">Wholesale Hub</span>
+                        <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300">B2B</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 truncate">Bulk buying for businesses</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="text-gray-400 text-sm shrink-0" />
+                </Link>
+              </div>
+
+              {/* Main Links */}
+              <div className="space-y-1 mb-10">
+                {mainLinks.map((link) => (
+                  <Link
+                    key={link.label}
+                    to={link.path}
+                    onClick={onClose}
+                    className="flex items-center gap-4 px-4 py-3 rounded-xl text-white/70 hover:text-white hover:bg-white/5 transition-all text-sm font-bold lowercase tracking-tight"
+                  >
+                    <link.icon className="text-xl text-amber-400" />
+                    <span className="first-letter:uppercase">{link.label}</span>
+                  </Link>
+                ))}
+              </div>
+
+              {/* Personal Section */}
+              <div className="space-y-1 mb-10">
+                <p className="px-4 text-[10px] font-black text-white/20 uppercase tracking-[0.3em] mb-4 scale-95 origin-left">{t("Personal Space")}</p>
+                {personalLinks.map((link) => (
+                  <Link
+                    key={link.label}
+                    to={link.path}
+                    onClick={onClose}
+                    className="flex items-center justify-between px-4 py-3 rounded-xl text-white/70 hover:text-white hover:bg-white/5 transition-all text-sm font-bold lowercase tracking-tight"
+                  >
+                    <div className="flex items-center gap-4">
+                      <link.icon className="text-xl text-amber-400" />
+                      <span className="first-letter:uppercase">{link.label}</span>
+                    </div>
+                    {link.badge > 0 && (
+                      <span className="h-6 min-w-[24px] px-2 flex items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-slate-950 shadow-lg shadow-amber-500/30">
+                        {link.badge > 9 ? "9+" : link.badge}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+
+
+              {/* Support Section */}
+              <div className="space-y-1">
+                <p className="px-4 text-[10px] font-black text-white/20 uppercase tracking-[0.3em] mb-4 scale-95 origin-left">{t("Support")}</p>
+                {secondaryLinks.map((link) => (
+                  <Link
+                    key={link.label}
+                    to={link.path}
+                    onClick={onClose}
+                    className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-bold lowercase tracking-tight transition-all ${
+                      link.highlight ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" : "text-white/70 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    <link.icon className="text-xl" />
+                    <span className="first-letter:uppercase">{link.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            {/* Logout Footer */}
+            {isAuthenticated && (
+              <div className="p-6 border-t border-white/5 bg-gradient-to-t from-white/5 to-transparent flex-shrink-0">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center gap-3 py-3 rounded-xl text-red-400/80 hover:text-red-400 hover:bg-red-400/5 rounded-xl transition-all text-sm font-black uppercase tracking-widest"
+                >
+                  <FiLogOut className="text-lg" />
+                  <span>{t("Logout")}</span>
+                </button>
+              </div>
+            )}
+            
+            {/* Minimal footer for guests */}
+            {!isAuthenticated && (
+              <div className="p-6 border-t border-white/5 text-center bg-gradient-to-t from-white/5 to-transparent flex-shrink-0">
+                <span className="text-[9px] font-black text-white/10 uppercase tracking-[0.5em]">{t("Dwell Mart Pro")}</span>
+              </div>
+            )}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  return typeof document !== "undefined" ? createPortal(menuContent, document.body) : null;
+};
+
+export default MobileMenu;
+
+

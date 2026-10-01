@@ -1,0 +1,113 @@
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+
+# ─── Environment / Secrets ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.env
+serviceAccountKey.json
+*serviceAccount*.json
+firebase-adminsdk-*.json
+
+# ─── Test & Scratch files ─────────────────────────────────────────────────────
+# P0-08 FIX: tests/ MUST be tracked in version control for CI to run the release gate.
+# Do NOT exclude test files — they are the definition of production-readiness.
+# test/        <- removed
+# tests/       <- removed
+# test_*.js    <- removed
+# *.test.js    <- removed
+scratch/
+
+# ─── Diagnostic / Dev-only HTML pages ────────────────────────────────────────
+**/public/push-diagnostic.html
+**/public/*-diagnostic.html
+**/public/*-debug.html
+**/public/*-test.html
+
+# ─── Build artifacts ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.cache/
+
+# ─── OS / IDE ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+*.postman_collection.json
+**/currency_cache.json
+
+# ─── Reports & Markdown Documentation ─────────────────────────────────────────
+/*.md
+*REPORT*.md
+*report*.md
+*AUDIT*.md
+*audit*.md
+*SOP*.md
+*sop*.md
+*PLAN*.md
+*plan*.md
+*PROMPT*.md
+*prompt*.md
+*INVESTIGATION*.md
+*REMEDIATION*.md
+docs/
+backend/docs/
+
+
+# ─── Office & Document Files ──────────────────────────────────────────────────
+*.doc
+*.docx
+*.pdf
+*.rtf
+*.odt
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+*.csv
+
+# ─── Database Backups & Dumps ─────────────────────────────────────────────────
+backups/
+**/backups/
+*.archive
+*.dump
+*.sql
+*.rdb
+*.bak
+
+# ─── Unrelated / Scratch / One-off Dev Scripts ────────────────────────────────
+scratch/
+**/scratch/
+temp_*
+*.tmp
+*.temp
+**/tools/dev-scripts/
+**/scripts/executeOptionBCleanup.mjs
+**/scripts/undoOptionBCleanup.mjs
+**/scripts/executeAug15Cleanup.mjs
+**/scripts/executeFreshSlateApproachA.mjs
+**/scripts/dryRun*.mjs
+**/scripts/inspectDates*.mjs
+backend/scripts/crops/
+
+# Test files
+**/*.test.js
+**/*.test.mjs
+!backend/tests/unit/*.test.mjs
+**/*.test.cjs
+**/*.spec.js
+**/*.spec.mjs
+**/*.spec.cjs
+!frontend/tests/homeSections.test.mjs
+!backend/tests/integration/homeDiscovery.test.mjs
+
+# Operational Archives, Backups & Local Storage (Important for ops, not for code repo)
+*.zip
+backend/*.zip
+backend/backups/
+backend/storage/

@@ -1,0 +1,933 @@
+/**
+ * OrderSplitterEngine
+ *
+ * The transactional core of the enterprise checkout architecture.
+ *
+ * Responsibility: Given a validated CheckoutSession payload, atomically:
+ *   1. Create one FulfillmentGroup per (vendor × fulfillmentType) combination.
+ *   2. Create one independent Order per FulfillmentGroup.
+ *   3. Populate the CheckoutSession.paymentAllocationLedger.
+ *   4. Reserve inventory for each Order.
+ *   5. Emit marketplace events.
+ *
+ * All DB writes run inside a single MongoDB session transaction.
+ * If ANY step fails the entire transaction rolls back → no partial state.
+ *
+ * This module is the ONLY code that creates Orders during the new checkout
+ * path. Legacy order creation in orderController.js continues to work
+ * unchanged for backward compatibility.
+ */
+
+import mongoose from 'mongoose';
+
+import Order from '../../models/Order.model.js';
+import { FulfillmentGroup } from '../../models/FulfillmentGroup.model.js';
+import { CheckoutSession } from '../../models/CheckoutSession.model.js';
+import Product from '../../models/Product.model.js';
+import Vendor from '../../models/Vendor.model.js';
+import Settings from '../../models/Settings.model.js';
+
+import ApiError from '../../utils/ApiError.js';
+import { resolvePriceForQuantity, deriveOrderType, resolveVariantSelection } from '../pricingEngine.service.js';
+import { isWholesaleMarketplaceEnabled } from '../featureFlags.service.js';
+import {
+    resolveVendorAvailability,
+    pointToLatLng,
+    haversineDistanceKm,
+    calculateEta,
+    calculateDeliveryFee,
+    getQuickCommerceSettings,
+    resolveEffectiveQCSettings,
+} from '../quickCommerce.service.js';
+import { assertCartValid } from './CartValidationPipeline.js';
+import { commitReservation } from './InventoryReservationService.js';
+import { marketplaceEventBus, MARKETPLACE_EVENTS } from '../events/marketplaceEventBus.js';
+import { roundMoney, assertPriceConsistency } from '../PriceReconciliationService.js';
+import { calculateVendorShippingForGroups } from '../vendorShipping.service.js';
+import { normalizeProductShipping } from '../shipping/parcelMetrics.js';
+import { checkDeliverability, deliverabilityStamp } from '../shipping/deliverability.service.js';
+import { ensureVendorCommissionsForOrder } from '../commission.service.js';
+
+/**
+ * Whether a price mismatch should halt checkout or merely be recorded.
+ *
+ * Settings-backed rather than NODE_ENV-derived so it can be flipped at runtime
+ * during an incident without a deploy. Defaults to 'observe': enabling
+ * enforcement before a soak proves zero mismatches would fail live checkouts.
+ */
+const getPriceConsistencyMode = async () => {
+    try {
+        const doc = await Settings.findOne({ key: 'checkout' }).lean();
+        return doc?.value?.enforcePriceConsistency === true ? 'enforce' : 'observe';
+    } catch {
+        return 'observe';
+    }
+};
+
+// ── ID helpers ──────────────────────────────────────────────────────────────
+
+const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const randomId = (len = 8) =>
+    Math.random().toString(36).substring(2, 2 + len).toUpperCase();
+
+export const generateSessionId  = () => `CS-${today()}-${randomId(8)}`;
+export const generateOrderId    = (ft) => {
+    const prefix = ft === 'quick_commerce' ? 'QC' : ft === 'wholesale' ? 'WS' : 'RT';
+    return `${prefix}-${today()}-${randomId(10)}`;
+};
+
+// ── Fulfillment type resolution ──────────────────────────────────────────────
+const resolveFT = (item, product = null) => {
+    // 1. Tagged item fulfillmentType in cart payload
+    const rawFt = String(item?.fulfillmentType || item?.experience || '').toLowerCase();
+    if (rawFt === 'quick_commerce') return 'quick_commerce';
+    if (rawFt === 'wholesale')      return 'wholesale';
+    if (rawFt === 'retail')         return 'retail';
+
+    // 2. Authoritative Product capability flags from DB
+    if (product?.quickCommerceEnabled === true) return 'quick_commerce';
+    if (product?.wholesaleEnabled === true)      return 'wholesale';
+
+    return 'retail';
+};
+
+// ── Split cart items into { fulfillmentType → vendorId → item[] } ─────────────
+// Authoritatively reads Product.vendorId from the DB productMap to ensure 100% vendor isolation
+const groupItems = (items, productMap = null) => {
+    const map = {};
+    for (const item of items) {
+        const productId = String(item.productId || item.id || '');
+        const product   = productMap?.get(productId);
+
+        // ALWAYS use authoritative product.vendorId from DB schema if product exists
+        const vid = String(product?.vendorId || item.vendorId || 'unknown');
+        const ft  = resolveFT(item, product);
+
+        if (!map[ft])       map[ft]       = {};
+        if (!map[ft][vid])  map[ft][vid]  = { vendorId: vid, items: [] };
+
+        map[ft][vid].items.push({
+            ...item,
+            productId,
+            vendorId: vid, // Lock item to authoritative vendorId
+            fulfillmentType: ft,
+        });
+    }
+    return map;
+};
+
+// ── Build a QC delivery sub-document for an order ────────────────────────────
+const buildQcDelivery = async (vendorDoc, customerLocation, subtotal, settings = {}) => {
+    const profile = vendorDoc?.quickCommerceProfile || {};
+    // P1-15 FIX: Never substitute a hardcoded city coordinate for a missing vendor location.
+    // A vendor without a geo-point cannot compute delivery distance, fee, or ETA correctly.
+    // Return null to signal "QC delivery unavailable for this vendor" — the caller handles gracefully.
+    const vendorPoint = pointToLatLng(profile?.location);
+    if (!vendorPoint) {
+        console.warn(`[QC] Vendor ${vendorDoc?._id} has no geo-point. Cannot compute QC delivery params.`);
+        return null;
+    }
+    if (!customerLocation?.latitude) return null;
+
+    const platformSettings = await getQuickCommerceSettings();
+    const mergedSettings = { ...platformSettings, ...settings };
+    const effective = resolveEffectiveQCSettings(vendorDoc, mergedSettings);
+
+    const distKm = haversineDistanceKm(vendorPoint, customerLocation) || 0;
+    const availability = resolveVendorAvailability(vendorDoc);
+    const eta = calculateEta({
+        preparationTimeMins: Number(profile?.preparationTimeMins) || Number(mergedSettings.defaultPreparationMins) || 20,
+        extraPrepMins: availability.extraPrepMins || 0,
+        distanceKm: distKm,
+        averageSpeedKmph: Number(mergedSettings.averageSpeedKmph) || 20,
+    });
+
+    const deliveryFee = calculateDeliveryFee({
+        distanceKm: distKm,
+        baseFee:             effective.baseFee,
+        perKmFee:            effective.perKmFee,
+        freeAboveSubtotal:   effective.freeAboveSubtotal,
+        freeDeliveryEnabled: effective.freeDeliveryEnabled,
+        maxDistanceKm:       effective.maxDistanceKm,
+        subtotal,
+    });
+
+    const packagingFee = effective.packagingFee;
+
+    return {
+        promisedEtaMinutes:  eta.etaMinutes,
+        promisedAt:          new Date(),
+        prepMins:            eta.prepMins,
+        travelMins:          eta.travelMins,
+        deliveryFee,
+        packagingFee,
+        distanceKm:          distKm,
+        customerLocation: {
+            type: 'Point',
+            coordinates: [customerLocation.longitude, customerLocation.latitude],
+        },
+    };
+};
+
+// ── Compute pricing for one vendor group ──────────────────────────────────────
+const computeGroupPricing = async (
+    vendorItems,
+    vendorDoc,
+    productMap,
+    wholesaleEnabled,
+    { shippingAmount = 0, discountAmount = 0, qcDelivery = null }
+) => {
+    let subtotal = 0;
+    let savings  = 0;
+    const pricedItems = [];
+
+    const vendorWholesaleEnabled =
+        wholesaleEnabled && vendorDoc?.channels?.wholesale?.status === 'active';
+
+    for (const item of vendorItems) {
+        const productId = String(item.productId || item.id || '');
+        const product   = productMap.get(productId);
+        if (!product) {
+            throw new ApiError(400, `Product not found: ${productId}`);
+        }
+
+        const { price: dbAuthoritativeBasePrice } = resolveVariantSelection(product, item.variant);
+
+        // Price Tampering Detection (Defense-in-depth)
+        if (item.price !== undefined && item.price !== null) {
+            const clientPrice = Number(item.price);
+            if (Number.isFinite(clientPrice) && Math.abs(clientPrice - dbAuthoritativeBasePrice) > 0.01) {
+                throw new ApiError(400, `Product price has changed or submitted price is invalid for ${product.name || 'product'}. Please refresh your cart and try again.`, [{
+                    code: 'CART_PRICE_MISMATCH',
+                    productId: String(product._id),
+                    submittedPrice: clientPrice,
+                    authoritativePrice: dbAuthoritativeBasePrice,
+                }]);
+            }
+        }
+
+        const basePrice = dbAuthoritativeBasePrice;
+        const qty       = Number(item.quantity || 1);
+
+        const pricing = resolvePriceForQuantity(product || {}, basePrice, qty, {
+            vendorWholesaleEnabled,
+        });
+
+        const lineSubtotal = pricing.unitPrice * qty;
+        subtotal += lineSubtotal;
+        savings  += pricing.savings || 0;
+
+        const parcel = normalizeProductShipping(product?.shipping);
+
+        pricedItems.push({
+            productId:       productId ? new mongoose.Types.ObjectId(productId) : null,
+            vendorId:        vendorDoc?._id || null,
+            name:            item.name || product?.name || '',
+            image:           item.image || product?.images?.[0] || '',
+            price:           pricing.unitPrice,
+            quantity:        qty,
+            variantKey:      item.variantKey || '',
+            variant:         item.variant    || {},
+            pricingType:     pricing.pricingType,
+            appliedTier:     pricing.appliedTier || null,
+            unitRetailPrice: pricing.unitRetailPrice,
+            savings:         pricing.savings || 0,
+            codAllowed:      product?.codAllowed !== false,
+            returnable:      product?.returnable !== false,
+            cancelable:      product?.cancelable !== false,
+            // Parcel snapshot, normalised to kg/cm once here so every
+            // downstream consumer reads one unit system. Omitted entirely when
+            // the product carries no measurements, so `undefined` continues to
+            // mean "never measured" rather than "measured as zero".
+            ...(parcel.weightKg ? { shippingWeightKg: parcel.weightKg } : {}),
+            ...(parcel.dims ? { shippingDims: parcel.dims } : {}),
+        });
+    }
+
+    // Tax — per-product tax-inclusive model; compute after bulk pricing applied
+    let taxForReporting = 0;   // for GST breakdown (always reported)
+    let taxAddedToTotal = 0;   // only added to total for tax-exclusive products
+    for (const pi of pricedItems) {
+        const product = productMap.get(String(pi.productId || ''));
+        if (!product) continue;
+        const rate = Number(product.taxRate) || 0;
+        if (rate <= 0) continue;
+        const lineAmt = pi.price * pi.quantity;
+        if (product.taxIncluded === true) {
+            // P1-22 FIX: Tax is already embedded in the price.
+            // Back-compute the GST component for reporting/filing purposes,
+            // but do NOT add it to the order total — that would double-count it.
+            const embedded = lineAmt - lineAmt / (1 + rate / 100);
+            taxForReporting += embedded;
+            // taxAddedToTotal stays 0 for this product
+        } else {
+            // Tax-exclusive: customer pays subtotal + tax on top
+            const extraTax = lineAmt * (rate / 100);
+            taxForReporting += extraTax;
+            taxAddedToTotal += extraTax;
+        }
+    }
+
+    const deliveryFee  = roundMoney(qcDelivery?.deliveryFee ?? shippingAmount);
+    const packagingFee = roundMoney(qcDelivery?.packagingFee ?? 0);
+    const tax          = roundMoney(taxForReporting);   // GST reporting field
+    const discount     = roundMoney(discountAmount);
+    const roundedSubtotal = roundMoney(subtotal);
+    const roundedSavings  = roundMoney(savings);
+    // Total uses taxAddedToTotal (only non-inclusive tax), NOT the full taxForReporting
+    const total        = roundMoney(
+        Math.max(0, roundedSubtotal + deliveryFee + packagingFee + roundMoney(taxAddedToTotal) - discount)
+    );
+
+    return {
+        pricedItems,
+        pricing: {
+            subtotal: roundedSubtotal,
+            shipping: deliveryFee,
+            packagingFee,
+            tax,
+            discount,
+            total,
+            savings: roundedSavings,
+        },
+    };
+};
+
+// ── Main splitter ─────────────────────────────────────────────────────────────
+
+/**
+ * Split a checkout into FulfillmentGroups + Orders, all inside a transaction.
+ *
+ * @param {Object} options
+ * @param {string}  options.sessionId               — CheckoutSession to populate
+ * @param {Array}   options.items                   — validated cart items
+ * @param {Object}  options.shippingAddress
+ * @param {string}  options.paymentMethod
+ * @param {Object}  [options.customerLocation]      — { latitude, longitude } for QC
+ * @param {Object}  [options.coupon]                — { code, type, discount }
+ * @param {number}  [options.shippingAmount]        — retail shipping override
+ * @param {Object}  [options.settings]              — platform-level overrides
+ * @returns {Promise<{ session: CheckoutSession, groups: FulfillmentGroup[], orders: Order[] }>}
+ */
+export const splitAndCreateOrders = async ({
+    sessionId,
+    items,
+    shippingAddress,
+    paymentMethod,
+    customerLocation = null,
+    coupon = null,
+    shippingAmount  = 0,
+    userId          = null,
+    settings        = {},
+}) => {
+    // ── 0a. Deliverability ─────────────────────────────────────────────────
+    // The authoritative check. The checkout screen asks the same question for
+    // instant feedback, but a REST client can skip the screen entirely — so the
+    // refusal has to live here, on the only path that creates an order.
+    //
+    // Only a DEFINITIVE carrier refusal stops the order. An unreachable carrier
+    // yields `blocking: false` and is recorded on the order instead; see
+    // services/shipping/deliverability.service.js.
+    const deliverability = await checkDeliverability(shippingAddress?.zipCode, {
+        requiresCod: ['cod', 'cash'].includes(String(paymentMethod || '').trim().toLowerCase()),
+    });
+
+    if (deliverability.blocking) {
+        throw new ApiError(400, deliverability.message, [{
+            code: 'DESTINATION_NOT_DELIVERABLE',
+            pincode: shippingAddress?.zipCode,
+            status: deliverability.status,
+        }]);
+    }
+
+    // ── 0b. Validate cart (throws CartValidationFailed if invalid) ──────────
+    await assertCartValid({ items, customerLocation });
+
+    // ── 1. Batch-fetch all required documents ──────────────────────────────
+    const productIds = [...new Set(items.map((i) => (i.productId || i.id) ? new mongoose.Types.ObjectId(String(i.productId || i.id)) : null).filter(Boolean))];
+    const [rawProducts, wholesaleEnabled] = await Promise.all([
+        Product.find({
+            _id: { $in: productIds },
+            publicationStatus: 'LIVE',
+            isActive: true,
+            isVisible: { $ne: false },
+            isDeleted: { $ne: true },
+        })
+            .select('_id name images price taxRate taxIncluded retailEnabled wholesaleEnabled quickCommerceEnabled wholesale shipping vendorId stock stockQuantity codAllowed returnable cancelable')
+            .lean(),
+        isWholesaleMarketplaceEnabled(),
+    ]);
+
+    if (['cod', 'cash'].includes(String(paymentMethod || '').trim().toLowerCase())) {
+        const nonCodProduct = rawProducts.find((p) => p.codAllowed === false);
+        if (nonCodProduct) {
+            throw new ApiError(400, `Product "${nonCodProduct.name || 'item'}" does not support Cash on Delivery. Please pay online.`);
+        }
+    }
+
+    const productMap = new Map(rawProducts.map((p) => [String(p._id), p]));
+
+    const vendorIds = [...new Set(rawProducts.map((p) => p.vendorId ? new mongoose.Types.ObjectId(String(p.vendorId)) : null).filter(Boolean))];
+    const rawVendors = await Vendor.find({ _id: { $in: vendorIds } })
+        .select('_id storeName channels quickCommerceProfile status isActive freeShippingThreshold defaultShippingRate shippingEnabled')
+        .lean();
+    const vendorMap = new Map(rawVendors.map((v) => [String(v._id), v]));
+
+    // ── 2. Group items into { fulfillmentType → vendorId → items[] } ───────
+    const grouped = groupItems(items, productMap);
+
+    // ── 3. Open MongoDB transaction with retry on transient WriteConflicts ─────────
+    let lastError = null;
+    for (let txnRetry = 0; txnRetry < 5; txnRetry++) {
+        const dbSession = await mongoose.startSession();
+        dbSession.startTransaction();
+
+        try {
+            const createdGroups = [];
+            const createdOrders = [];
+            const ledger        = [];
+
+            const session = await CheckoutSession.findOne({ sessionId }).session(dbSession);
+            if (!session) throw new Error(`CheckoutSession ${sessionId} not found.`);
+
+            // ── 4. Pre-pass: compute raw subtotal per (FT,vendor) group for coupon splitting ──
+            //    Coupon discount is distributed PROPORTIONALLY to each FG's subtotal share.
+            //    This prevents the same discount being applied N times across N groups.
+            let cartSubtotalForCoupon = 0;
+            const groupSubtotals = {}; // key: `${ft}:${vendorId}`
+            const shippingGroupInputs = [];
+
+            for (const [ft, vendorGroups] of Object.entries(grouped)) {
+                for (const [vendorId, groupData] of Object.entries(vendorGroups)) {
+                    const key = `${ft}:${vendorId}`;
+                    const vendorDoc = vendorMap.get(vendorId);
+                    const subtotal = groupData.items.reduce((s, item) => {
+                        const product = productMap.get(String(item.productId || item.id || ''));
+                        const { price: unitPrice } = resolveVariantSelection(product || {}, item.variant);
+                        return s + unitPrice * Number(item.quantity || 1);
+                    }, 0);
+                    groupSubtotals[key] = subtotal;
+                    cartSubtotalForCoupon += subtotal;
+
+                    if (ft === 'retail' || ft === 'wholesale') {
+                        shippingGroupInputs.push({
+                            vendorId,
+                            subtotal,
+                            shippingEnabled: vendorDoc?.shippingEnabled !== false,
+                            defaultShippingRate: vendorDoc?.defaultShippingRate,
+                            freeShippingThreshold: vendorDoc?.freeShippingThreshold,
+                        });
+                    }
+                }
+            }
+
+            const { shippingByVendor } = await calculateVendorShippingForGroups({
+                vendorGroups: shippingGroupInputs,
+                shippingAddress,
+                couponType: coupon?.type,
+            });
+
+            // ── Read Payment & Fee Settings ─────────────────────────────────────
+            const paymentSettingsDoc = await Settings.findOne({ key: 'payment' }).session(dbSession).lean();
+            const paymentSettings = paymentSettingsDoc?.value || {};
+            const platformFee = Math.max(0, Number(paymentSettings.platformFee) || 0);
+            const handlingFee = Math.max(0, Number(paymentSettings.handlingFee) || 0);
+            const isCod = String(paymentMethod || '').toLowerCase() === 'cod' || String(paymentMethod || '').toLowerCase() === 'cash';
+            const codFee = isCod ? Math.max(0, Number(paymentSettings.codFee) || 0) : 0;
+            const codAdvancePaymentEnabled = paymentSettings.codAdvancePaymentEnabled !== false;
+
+            let totalFgCount = 0;
+            for (const vendorGroups of Object.values(grouped)) {
+                totalFgCount += Object.keys(vendorGroups).length;
+            }
+            let currentFgIndex = 0;
+            let allocatedPlatformFee = 0;
+            let allocatedHandlingFee = 0;
+            let allocatedCodFee = 0;
+
+            for (const [ft, vendorGroups] of Object.entries(grouped)) {
+                for (const [vendorId, groupData] of Object.entries(vendorGroups)) {
+                    const vendorDoc  = vendorMap.get(vendorId) || null;
+                    const vendorName = vendorDoc?.storeName || 'Unknown Vendor';
+
+                    // Proportional coupon discount for this specific FG
+                    const key             = `${ft}:${vendorId}`;
+                    const fgSubtotal      = groupSubtotals[key] || 0;
+                    const couponRatio     = cartSubtotalForCoupon > 0 ? fgSubtotal / cartSubtotalForCoupon : 0;
+                    const fgCouponDiscount = coupon ? Number(((coupon.discount || 0) * couponRatio).toFixed(2)) : 0;
+
+                    // QC-specific delivery calculation
+                    let qcDelivery = null;
+                    if (ft === 'quick_commerce') {
+                        const { pricedItems: tempPriced, pricing: tempPricing } =
+                            await computeGroupPricing(groupData.items, vendorDoc, productMap, wholesaleEnabled, {});
+                        qcDelivery = await buildQcDelivery(vendorDoc, customerLocation, tempPricing.subtotal, settings);
+                    }
+
+                    const calculatedShipping = (ft === 'retail' || ft === 'wholesale')
+                        ? (shippingByVendor[vendorId] ?? shippingAmount)
+                        : 0;
+
+                    // Compute final pricing — use proportional coupon discount, not total
+                    const { pricedItems, pricing } = await computeGroupPricing(
+                        groupData.items,
+                        vendorDoc,
+                        productMap,
+                        wholesaleEnabled,
+                        {
+                            shippingAmount: calculatedShipping,
+                            discountAmount: fgCouponDiscount,   // ← proportional, not total
+                            qcDelivery,
+                        }
+                    );
+
+                    // ── 4a. Create FulfillmentGroup ─────────────────────────────
+                    const [fgDoc] = await FulfillmentGroup.create(
+                        [{
+                            sessionId: session._id,
+                            orderId:   null,   // back-filled after order is created
+                            vendorId:  vendorDoc?._id || new mongoose.Types.ObjectId(vendorId),
+                            vendorName,
+                            fulfillmentType: ft,
+                            status:          'validated',
+                            items:           pricedItems,
+                            pricing,
+                            coupon: coupon ? {
+                                code:     coupon.code,
+                                type:     coupon.type,
+                                discount: fgCouponDiscount,  // ← proportional share
+                                scope:    'platform',
+                            } : undefined,
+                            deliveryDetails: {
+                                qc:      ft === 'quick_commerce' ? qcDelivery : undefined,
+                                retail:  ft === 'retail'  ? { shippingOption: settings.shippingOption || 'standard' } : undefined,
+                                wholesale: ft === 'wholesale' ? { minOrderQuantity: settings.moq || 1 } : undefined,
+                            },
+                        }],
+                        { session: dbSession }
+                    );
+
+                    // ── 4b. Create Order ────────────────────────────────────────
+                    const orderId = generateOrderId(ft);
+                    const pricingTypes = pricedItems.map((i) => ({ pricingType: i.pricingType }));
+
+                    currentFgIndex++;
+                    const isLastGroup = currentFgIndex === totalFgCount;
+
+                    let fgPlatformFee = 0;
+                    let fgHandlingFee = 0;
+                    let fgCodFee = 0;
+
+                    if (isLastGroup) {
+                        fgPlatformFee = roundMoney(platformFee - allocatedPlatformFee);
+                        fgHandlingFee = roundMoney(handlingFee - allocatedHandlingFee);
+                        fgCodFee = roundMoney(codFee - allocatedCodFee);
+                    } else {
+                        fgPlatformFee = cartSubtotalForCoupon > 0 ? roundMoney(platformFee * (fgSubtotal / cartSubtotalForCoupon)) : 0;
+                        fgHandlingFee = cartSubtotalForCoupon > 0 ? roundMoney(handlingFee * (fgSubtotal / cartSubtotalForCoupon)) : 0;
+                        fgCodFee = cartSubtotalForCoupon > 0 ? roundMoney(codFee * (fgSubtotal / cartSubtotalForCoupon)) : 0;
+                        allocatedPlatformFee += fgPlatformFee;
+                        allocatedHandlingFee += fgHandlingFee;
+                        allocatedCodFee += fgCodFee;
+                    }
+
+                    const fgFees = {
+                        platformFee: fgPlatformFee,
+                        handlingFee: fgHandlingFee,
+                        codFee: fgCodFee,
+                    };
+                    const orderTotal = roundMoney(pricing.total + fgPlatformFee + fgHandlingFee + fgCodFee);
+
+                    const isPartiallyPaid = session.paymentStatus === 'partially_paid';
+                    const isPaid = session.paymentStatus === 'paid';
+                    const fgAdvanceRequired = (isCod && codAdvancePaymentEnabled)
+                        ? roundMoney(fgPlatformFee + fgHandlingFee + fgCodFee)
+                        : 0;
+                    const fgCashDue = isCod ? roundMoney(orderTotal - fgAdvanceRequired) : 0;
+
+                    const orderPayload = {
+                        orderId,
+                        userId: userId ? new mongoose.Types.ObjectId(userId) : null,
+                        items:  pricedItems,
+                        vendorItems: [{
+                            vendorId:  fgDoc.vendorId,
+                            vendorName,
+                            items:     pricedItems,
+                            subtotal:  pricing.subtotal,
+                            shipping:  pricing.shipping,
+                            packagingFee: pricing.packagingFee || 0,
+                            tax:       pricing.tax,
+                            discount:  pricing.discount,
+                            total:     pricing.total,
+                            // The channel this group was split under. `orderType`
+                            // below is a PRICING type from deriveOrderType() and
+                            // cannot represent Quick Commerce, so it must never
+                            // be the only channel signal on the slice.
+                            fulfillmentType: ft,
+                            orderType: deriveOrderType(pricingTypes),
+                            status:    'pending',
+                        }],
+                        shippingAddress,
+                        // What we knew about this destination when the order was
+                        // taken. A vendor opening an `unverified` order knows the
+                        // address was never confirmed, rather than finding out
+                        // when the booking fails.
+                        deliverability: deliverabilityStamp(deliverability),
+                        paymentMethod,
+                        paymentStatus: session.paymentStatus === 'paid' ? 'paid' : (isPartiallyPaid ? 'partially_paid' : 'pending'),
+                        status:        session.paymentStatus === 'paid' ? 'confirmed' : (isPartiallyPaid ? 'confirmed' : 'pending'),
+                        subtotal:      pricing.subtotal,
+                        shipping:      pricing.shipping,
+                        tax:           pricing.tax,
+                        packagingFee:  pricing.packagingFee || 0,
+                        fees:          fgFees,
+                        codDetails: {
+                            advancePaid:       (isPartiallyPaid || isPaid) ? fgAdvanceRequired : 0,
+                            cashOnDeliveryDue: (isPartiallyPaid || isPaid) ? fgCashDue : orderTotal,
+                            advancePaymentId:  session.gatewayReference || session.metadata?.advancePaymentId || null,
+                            advanceGateway:    session.metadata?.advanceGateway || 'online',
+                        },
+                        // This order's own discount. Previously omitted entirely,
+                        // so every splitter-created order recorded discount: 0
+                        // while finance reports summed exactly this field.
+                        discount:      pricing.discount,
+                        total:         orderTotal,
+                        totalSavings:  pricing.savings,
+                        orderType:     deriveOrderType(pricingTypes),
+                        // Enterprise Marketplace linkage
+                        vendorId:           fgDoc.vendorId,
+                        checkoutSessionId:  session._id,
+                        fulfillmentGroupId: fgDoc._id,
+                        fulfillmentType:    fgDoc.fulfillmentType,
+                        // Fulfillment-type-specific fields
+                        experience: ft === 'quick_commerce' ? 'quick_commerce' : 'marketplace',
+                        couponCode:     coupon?.code || null,
+                        // This group's proportional share, NOT the cart-wide
+                        // figure. Writing `coupon.discount` here recorded the
+                        // full discount on every sub-order, so an N-vendor split
+                        // reported N times the discount actually given.
+                        couponDiscount: fgCouponDiscount,
+                    };
+
+                    if (ft === 'quick_commerce' && qcDelivery) {
+                        orderPayload.quickCommerce = {
+                            promisedEtaMinutes: qcDelivery.promisedEtaMinutes,
+                            promisedAt:         qcDelivery.promisedAt,
+                            etaBreakdown:       { prepMins: qcDelivery.prepMins, travelMins: qcDelivery.travelMins },
+                            status:             'placed',
+                            customerLocation:   qcDelivery.customerLocation,
+                            deliveryDistanceKm: qcDelivery.distanceKm,
+                            deliveryFee:        qcDelivery.deliveryFee,
+                            packagingFee:       qcDelivery.packagingFee,
+                            assignment:         { status: 'pending', attempts: 0 },
+                        };
+                    }
+
+                    const [orderDoc] = await Order.create([orderPayload], { session: dbSession });
+
+                    // ── 4c. Back-fill orderId in FulfillmentGroup ───────────────
+                    await FulfillmentGroup.updateOne(
+                        { _id: fgDoc._id },
+                        { $set: { orderId: orderDoc._id, status: 'order_created' } },
+                        { session: dbSession }
+                    );
+
+                    // ── 4e. Ledger entry ────────────────────────────────────────
+                    ledger.push({
+                        orderId:            orderDoc._id,
+                        fulfillmentGroupId: fgDoc._id,
+                        vendorId:           fgDoc.vendorId,
+                        vendorName,
+                        fulfillmentType:    ft,
+                        amount:             orderTotal,
+                        captured:           0,
+                        refunded:           0,
+                        pendingSettlement:  0,
+                        settled:            0,
+                        status:             'allocated',
+                    });
+
+                    createdGroups.push(fgDoc);
+                    createdOrders.push(orderDoc);
+                }
+            }
+
+            // ── 4d. Commit inventory reservation → atomic stock deduction ──
+            //    Called ONCE per session (outside vendor/FT loops) to prevent
+            //    double-deduction on multi-vendor carts.
+            //    PATH A: marks reservations 'committed' and decrements stockQuantity.
+            //    PATH B: direct atomic deduction when reservation has expired.
+            await commitReservation(sessionId, items, dbSession);
+
+            // ── 5. Update CheckoutSession ────────────────────────────────────────
+            const grandTotal = ledger.reduce((s, l) => s + l.amount, 0);
+            const sessionAdvanceRequired = (isCod && codAdvancePaymentEnabled)
+                ? roundMoney(platformFee + handlingFee + codFee)
+                : 0;
+            const sessionCodDue = isCod ? roundMoney(grandTotal - sessionAdvanceRequired) : 0;
+
+            await CheckoutSession.updateOne(
+                { _id: session._id },
+                {
+                    $set: {
+                        fulfillmentGroupIds:     createdGroups.map((g) => g._id),
+                        orderIds:                createdOrders.map((o) => o._id),
+                        paymentAllocationLedger: ledger,
+                        status:                  'processing',
+                        'summary.platformFee':   roundMoney(platformFee),
+                        'summary.handlingFee':   roundMoney(handlingFee),
+                        'summary.codFee':        roundMoney(codFee),
+                        'summary.advanceRequired': roundMoney(sessionAdvanceRequired),
+                        'summary.codDue':        roundMoney(sessionCodDue),
+                        'summary.grandTotal':    grandTotal,
+                    },
+                },
+                { session: dbSession }
+            );
+
+            // ── 5b. Price consistency, BEFORE commit ─────────────────────────
+            // Compare the amount the customer was authorised/charged for
+            // (`session.summary.grandTotal`) against the sum of the orders being
+            // created. This previously ran AFTER commit and compared `grandTotal`
+            // against the order totals it was itself derived from — two views of
+            // the same number, so it could never detect a mismatch and could not
+            // have stopped one anyway.
+            const authorisedTotal = Number(session.summary?.grandTotal);
+            if (Number.isFinite(authorisedTotal) && authorisedTotal > 0) {
+                assertPriceConsistency({
+                    checkoutTotal: authorisedTotal,
+                    orderTotals: createdOrders.map((o) => o.total),
+                    context: `OrderSplitterEngine:${sessionId}`,
+                    mode: await getPriceConsistencyMode(),
+                });
+            }
+
+            await dbSession.commitTransaction();
+            await dbSession.endSession();
+
+        // ── 6. Emit events (after commit — never inside transaction) ──────────
+        for (const order of createdOrders) {
+            marketplaceEventBus.emit(MARKETPLACE_EVENTS.ORDER_CREATED, {
+                order,
+                fulfillmentType: order.fulfillmentType,
+            });
+            if (order.fulfillmentType === 'quick_commerce') {
+                marketplaceEventBus.emit(MARKETPLACE_EVENTS.QC_ORDER_PLACED, { order });
+            }
+        }
+        marketplaceEventBus.emit(MARKETPLACE_EVENTS.CHECKOUT_COMPLETED, {
+            sessionId,
+            orderCount: createdOrders.length,
+        });
+
+        // ── 7. P1-17 FIX: Create Commission records for each vendor order ─────
+        // Runs after transaction commit — idempotent, won't block the checkout path.
+        // ensureVendorCommissionsForOrder checks for existing records before creating.
+        for (const order of createdOrders) {
+            ensureVendorCommissionsForOrder(order).catch((err) =>
+                console.error(`[OrderSplitter] Commission creation failed for order ${order.orderId}:`, err?.message)
+            );
+        }
+
+        return { session, groups: createdGroups, orders: createdOrders, ledger };
+
+        } catch (err) {
+            await dbSession.abortTransaction();
+            await dbSession.endSession();
+
+            lastError = err;
+            const isWriteConflict = err?.code === 112 || err?.codeName === 'WriteConflict' || err?.errorResponse?.code === 112 || err?.hasErrorLabel?.('TransientTransactionError') || String(err?.message || '').includes('Write conflict');
+            if (isWriteConflict && txnRetry < 4) {
+                await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 50));
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw lastError;
+};
+
+/**
+ * Compute full authoritative financial summary for a CheckoutSession prior to session creation.
+ * Reuses the EXACT SAME pricing, QC delivery, vendor shipping, tax, packaging, and coupon logic
+ * that splitAndCreateOrders uses, ensuring CheckoutSession.summary.grandTotal === Order.total === Cashfree Amount.
+ */
+export const calculateCheckoutSessionSummary = async ({
+    items = [],
+    shippingAddress = {},
+    customerLocation = null,
+    coupon = null,
+    shippingAmount = 0,
+    shippingOption = 'standard',
+    paymentMethod = 'card',
+}) => {
+    const rawProducts = await Product.find({
+        _id: { $in: items.map((i) => i.productId || i.id).filter(Boolean) },
+        publicationStatus: 'LIVE',
+        isActive: true,
+        isVisible: { $ne: false },
+        isDeleted: { $ne: true },
+    }).lean();
+    const productMap = new Map(rawProducts.map((p) => [String(p._id), p]));
+
+    const vendorIds = [...new Set(rawProducts.map((p) => String(p.vendorId || '')).filter(Boolean))];
+    const rawVendors = await Vendor.find({ _id: { $in: vendorIds } })
+        .select('_id storeName channels quickCommerceProfile status isActive freeShippingThreshold defaultShippingRate shippingEnabled')
+        .lean();
+    const vendorMap = new Map(rawVendors.map((v) => [String(v._id), v]));
+
+    const grouped = groupItems(items, productMap);
+
+    let cartSubtotalForCoupon = 0;
+    const groupSubtotals = {};
+    const shippingGroupInputs = [];
+
+    for (const [ft, vendorGroups] of Object.entries(grouped)) {
+        for (const [vendorId, groupData] of Object.entries(vendorGroups)) {
+            const key = `${ft}:${vendorId}`;
+            const vendorDoc = vendorMap.get(vendorId);
+            const subtotal = groupData.items.reduce((s, item) => {
+                const product = productMap.get(String(item.productId || item.id || ''));
+                const { price: unitPrice } = resolveVariantSelection(product || {}, item.variant);
+                return s + unitPrice * Number(item.quantity || 1);
+            }, 0);
+            groupSubtotals[key] = subtotal;
+            cartSubtotalForCoupon += subtotal;
+
+            if (ft === 'retail' || ft === 'wholesale') {
+                shippingGroupInputs.push({
+                    vendorId,
+                    subtotal,
+                    shippingEnabled: vendorDoc?.shippingEnabled !== false,
+                    defaultShippingRate: vendorDoc?.defaultShippingRate,
+                    freeShippingThreshold: vendorDoc?.freeShippingThreshold,
+                });
+            }
+        }
+    }
+
+    const { shippingByVendor } = await calculateVendorShippingForGroups({
+        vendorGroups: shippingGroupInputs,
+        shippingAddress,
+        couponType: coupon?.type,
+    });
+
+    const settingsDoc = await Settings.findOne({ key: 'quick_commerce' }).lean();
+    const settings = settingsDoc?.value || {};
+
+    const paymentSettingsDoc = await Settings.findOne({ key: 'payment' }).lean();
+    const paymentSettings = paymentSettingsDoc?.value || {};
+    const platformFee = Math.max(0, Number(paymentSettings.platformFee) || 0);
+    const handlingFee = Math.max(0, Number(paymentSettings.handlingFee) || 0);
+    const isCod = String(paymentMethod || '').toLowerCase() === 'cod' || String(paymentMethod || '').toLowerCase() === 'cash';
+    const codFee = isCod ? Math.max(0, Number(paymentSettings.codFee) || 0) : 0;
+    const codAdvancePaymentEnabled = paymentSettings.codAdvancePaymentEnabled !== false;
+
+    // The wholesale flag MUST come from the same source `splitAndCreateOrders`
+    // uses. This previously read Settings{key:'wholesale'} — a key with no
+    // writer anywhere and no entry in SETTINGS_CATEGORY_SCHEMAS, so the document
+    // could never exist and `value?.enabled !== false` resolved to true forever.
+    // The result: the summary sent to the payment gateway applied wholesale tier
+    // pricing while the orders created from it did not, so the customer was
+    // charged an amount that did not match the order ledger.
+    const wholesaleEnabled = await isWholesaleMarketplaceEnabled();
+
+    let totalSubtotal = 0;
+    let totalShipping = 0;
+    let totalPackaging = 0;
+    let totalTax = 0;
+    let totalDiscount = 0;
+
+    for (const [ft, vendorGroups] of Object.entries(grouped)) {
+        for (const [vendorId, groupData] of Object.entries(vendorGroups)) {
+            const vendorDoc = vendorMap.get(vendorId) || null;
+            const key = `${ft}:${vendorId}`;
+            const fgSubtotal = groupSubtotals[key] || 0;
+            const couponRatio = cartSubtotalForCoupon > 0 ? fgSubtotal / cartSubtotalForCoupon : 0;
+            const fgCouponDiscount = coupon ? Number(((coupon.discount || 0) * couponRatio).toFixed(2)) : 0;
+
+            let qcDelivery = null;
+            if (ft === 'quick_commerce') {
+                const { pricing: tempPricing } = await computeGroupPricing(groupData.items, vendorDoc, productMap, wholesaleEnabled, {});
+                qcDelivery = await buildQcDelivery(vendorDoc, customerLocation, tempPricing.subtotal, settings);
+            }
+
+            const calculatedShipping = (ft === 'retail' || ft === 'wholesale')
+                ? (shippingByVendor[vendorId] ?? shippingAmount)
+                : 0;
+
+            const { pricing } = await computeGroupPricing(
+                groupData.items,
+                vendorDoc,
+                productMap,
+                wholesaleEnabled,
+                {
+                    shippingAmount: calculatedShipping,
+                    discountAmount: fgCouponDiscount,
+                    qcDelivery,
+                }
+            );
+
+            totalSubtotal += pricing.subtotal;
+            totalShipping += pricing.shipping;
+            totalPackaging += pricing.packagingFee;
+            totalTax += pricing.tax;     // GST reporting field (inclusive tax extracted for filing)
+            totalDiscount += pricing.discount;
+        }
+    }
+
+    // P1-22 FIX: Use pre-computed pricing.total from computeGroupPricing which already
+    // correctly handles tax-inclusive (no double-count) and tax-exclusive (added on top) products.
+    // Rebuilding from components here would re-add the reporting tax to the total — wrong for inclusive products.
+    let grandTotalRaw = 0;
+    for (const [ft, vendorGroups] of Object.entries(grouped)) {
+        for (const [vendorId, groupData] of Object.entries(vendorGroups)) {
+            const vendorDoc = vendorMap.get(vendorId) || null;
+            const key = `${ft}:${vendorId}`;
+            const fgSubtotal = groupSubtotals[key] || 0;
+            const couponRatio = cartSubtotalForCoupon > 0 ? fgSubtotal / cartSubtotalForCoupon : 0;
+            const fgCouponDiscount = coupon ? Number(((coupon.discount || 0) * couponRatio).toFixed(2)) : 0;
+
+            let qcDelivery2 = null;
+            if (ft === 'quick_commerce') {
+                const { pricing: tmpP } = await computeGroupPricing(groupData.items, vendorDoc, productMap, wholesaleEnabled, {});
+                qcDelivery2 = await buildQcDelivery(vendorDoc, customerLocation, tmpP.subtotal, settings);
+            }
+            const calculatedShipping2 = (ft === 'retail' || ft === 'wholesale')
+                ? (shippingByVendor[vendorId] ?? shippingAmount)
+                : 0;
+            const { pricing: finalPricing } = await computeGroupPricing(
+                groupData.items, vendorDoc, productMap, wholesaleEnabled,
+                { shippingAmount: calculatedShipping2, discountAmount: fgCouponDiscount, qcDelivery: qcDelivery2 }
+            );
+            grandTotalRaw += finalPricing.total;
+        }
+    }
+    const grandTotal = roundMoney(Math.max(0, grandTotalRaw + platformFee + handlingFee + codFee));
+    const advanceRequired = isCod
+        ? (codAdvancePaymentEnabled ? roundMoney(Math.min(grandTotal, codFee + handlingFee + platformFee)) : 0)
+        : grandTotal;
+    const codDue = isCod ? roundMoney(Math.max(0, grandTotal - advanceRequired)) : 0;
+
+    return {
+        subtotal: roundMoney(totalSubtotal),
+        deliveryFee: roundMoney(totalShipping),
+        totalShipping: roundMoney(totalShipping),
+        packagingFee: roundMoney(totalPackaging),
+        totalPackagingFee: roundMoney(totalPackaging),
+        platformFee: roundMoney(platformFee),
+        handlingFee: roundMoney(handlingFee),
+        codFee: roundMoney(codFee),
+        advanceRequired: roundMoney(advanceRequired),
+        codDue: roundMoney(codDue),
+        tax: roundMoney(totalTax),
+        totalTax: roundMoney(totalTax),
+        discount: roundMoney(totalDiscount),
+        totalDiscount: roundMoney(totalDiscount),
+        grandTotal: roundMoney(grandTotal),
+    };
+};

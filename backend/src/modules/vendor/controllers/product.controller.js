@@ -1,0 +1,614 @@
+import asyncHandler from '../../../utils/asyncHandler.js';
+import ApiResponse from '../../../utils/ApiResponse.js';
+import ApiError from '../../../utils/ApiError.js';
+import Product from '../../../models/Product.model.js';
+import Vendor from '../../../models/Vendor.model.js';
+import { slugify } from '../../../utils/slugify.js';
+import { assertShippingPolicy } from '../../../services/shipping/shippingPolicy.service.js';
+import Category from '../../../models/Category.model.js';
+import {
+    resolveWholesalePayload,
+    resolveQuickCommercePayload,
+} from '../../../services/pricingValidation.service.js';
+import { channelToProductFlag, isChannelWritable } from '../../../constants/vendorChannels.js';
+import { parsePagination } from '../../../utils/pagination.js';
+import { notifyAdminsOfVendorProducts } from '../../../services/notification.service.js';
+
+const stripAdminPublicationFields = (payload = {}) => {
+    [
+        'publicationStatus', 'publicationStatusUpdatedAt', 'publishedAt',
+        'publishedBy', 'unpublishedAt', 'unpublishedBy', 'rejectionReason',
+    ].forEach((field) => delete payload[field]);
+    return payload;
+};
+
+/**
+ * Derive which selling channels this vendor supports.
+ * Reads canonical channel authorization. Product flags never grant vendor access.
+ */
+const getVendorChannels = async (vendorId) => {
+    const vendor = await Vendor.findById(vendorId).select('channels').lean();
+    return {
+        wholesale: isChannelWritable(vendor, 'wholesale'),
+        quickCommerce: isChannelWritable(vendor, 'quick_commerce'),
+    };
+};
+
+/** Look up which experience a category belongs to, for cross-tree validation. */
+const getCategoryExperience = async (categoryId) => {
+    if (!categoryId) return null;
+    const category = await Category.findById(categoryId).select('supportedExperiences experience').lean();
+    if (!category) throw new ApiError(400, 'Selected category does not exist.');
+    if (Array.isArray(category.supportedExperiences) && category.supportedExperiences.length > 0) {
+        if (category.supportedExperiences.includes('quick_commerce')) {
+            return 'quick_commerce';
+        }
+        return category.supportedExperiences[0];
+    }
+    return category.experience || 'marketplace';
+};
+
+const deriveStockStatus = (stockQuantity = 0, lowStockThreshold = 10) => {
+    if (stockQuantity <= 0) return 'out_of_stock';
+    if (stockQuantity <= lowStockThreshold) return 'low_stock';
+    return 'in_stock';
+};
+
+const sanitizeFaqs = (faqs) => {
+    if (!Array.isArray(faqs)) return [];
+    return faqs
+        .map((faq) => ({
+            question: String(faq?.question || '').trim(),
+            answer: String(faq?.answer || '').trim(),
+        }))
+        .filter((faq) => faq.question && faq.answer);
+};
+
+const normalizeVariantPart = (value) => String(value || '').trim().toLowerCase();
+
+const uniqueAxisValues = (values = []) => {
+    const seen = new Set();
+    const out = [];
+    for (const raw of values) {
+        const value = String(raw || '').trim();
+        if (!value) continue;
+        const key = normalizeVariantPart(value);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+    }
+    return out;
+};
+
+const createVariantKey = (size = '', color = '') =>
+    `${normalizeVariantPart(size)}|${normalizeVariantPart(color)}`;
+const normalizeAxisName = (value) =>
+    String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+const createDynamicVariantKey = (selection = {}) =>
+    Object.entries(selection || {})
+        .map(([axis, value]) => [normalizeAxisName(axis), normalizeVariantPart(value)])
+        .filter(([axis, value]) => axis && value)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([axis, value]) => `${axis}=${value}`)
+        .join('|');
+
+const toObjectEntries = (value) => {
+    if (!value) return [];
+    if (value instanceof Map) return Array.from(value.entries());
+    if (typeof value === 'object') return Object.entries(value);
+    return [];
+};
+
+const toNonNegativeNumber = (raw) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const normalizeAttributes = (rawAttributes = []) => {
+    const seen = new Set();
+    const attributes = [];
+    for (const raw of rawAttributes || []) {
+        const name = String(raw?.name || '').trim();
+        const axisKey = normalizeAxisName(name);
+        if (!name || !axisKey || seen.has(axisKey)) continue;
+        seen.add(axisKey);
+        const values = uniqueAxisValues(raw?.values || []);
+        if (!values.length) continue;
+        attributes.push({ name, axisKey, values });
+    }
+    return attributes;
+};
+
+const buildCombinationsFromAttributes = (attributes = []) => {
+    if (!attributes.length) return [];
+    let combos = [{}];
+    attributes.forEach((attr) => {
+        const next = [];
+        combos.forEach((selection) => {
+            attr.values.forEach((value) => next.push({ ...selection, [attr.axisKey]: value }));
+        });
+        combos = next;
+    });
+    return combos;
+};
+
+const normalizeVariantsPayload = (rawVariants = {}, fallbackPrice) => {
+    if (!rawVariants || typeof rawVariants !== 'object') {
+        return { sizes: [], colors: [], attributes: [], prices: {}, stockMap: {}, imageMap: {}, defaultVariant: {}, defaultSelection: {} };
+    }
+
+    const sizes = uniqueAxisValues(rawVariants.sizes || []);
+    const colors = uniqueAxisValues(rawVariants.colors || []);
+    const attributes = normalizeAttributes(rawVariants.attributes || []);
+    const hasSizeAxis = sizes.length > 0;
+    const hasColorAxis = colors.length > 0;
+    const hasDynamicAxes = attributes.length > 0;
+    const hasAnyAxis = hasDynamicAxes || hasSizeAxis || hasColorAxis;
+
+    if (!hasAnyAxis) {
+        return { sizes: [], colors: [], attributes: [], prices: {}, stockMap: {}, imageMap: {}, defaultVariant: {}, defaultSelection: {} };
+    }
+
+    const combinations = [];
+    if (hasDynamicAxes) {
+        buildCombinationsFromAttributes(attributes).forEach((selection) => combinations.push({ selection }));
+    } else if (hasSizeAxis && hasColorAxis) {
+        sizes.forEach((size) => colors.forEach((color) => combinations.push({ selection: { size, color } })));
+    } else if (hasSizeAxis) {
+        sizes.forEach((size) => combinations.push({ selection: { size } }));
+    } else {
+        colors.forEach((color) => combinations.push({ selection: { color } }));
+    }
+
+    const pricesSource = Object.fromEntries(toObjectEntries(rawVariants.prices));
+    const stockSource = Object.fromEntries(toObjectEntries(rawVariants.stockMap));
+    const imageSource = Object.fromEntries(toObjectEntries(rawVariants.imageMap));
+    const prices = {};
+    const stockMap = {};
+    const imageMap = {};
+
+    combinations.forEach(({ selection }) => {
+        const size = String(selection?.size || '');
+        const color = String(selection?.color || '');
+        const key = hasDynamicAxes
+            ? createDynamicVariantKey(selection)
+            : createVariantKey(size, color);
+        const rawPrice = pricesSource[key];
+        const parsedPrice = Number(rawPrice);
+        if (Number.isFinite(parsedPrice) && parsedPrice >= 0) {
+            prices[key] = parsedPrice;
+        } else {
+            const fallback = Number(fallbackPrice);
+            if (Number.isFinite(fallback) && fallback >= 0) {
+                prices[key] = fallback;
+            }
+        }
+
+        const parsedStock = toNonNegativeNumber(stockSource[key]);
+        if (parsedStock !== null) {
+            stockMap[key] = parsedStock;
+        }
+
+        const image = String(imageSource[key] || '').trim();
+        if (image) {
+            imageMap[key] = image;
+        }
+    });
+
+    const defaultSize = String(rawVariants?.defaultVariant?.size || '').trim();
+    const defaultColor = String(rawVariants?.defaultVariant?.color || '').trim();
+    const normalizedDefaultSize = hasSizeAxis ? defaultSize : '';
+    const normalizedDefaultColor = hasColorAxis ? defaultColor : '';
+    const hasValidDefaultSize = !normalizedDefaultSize || sizes.some((s) => normalizeVariantPart(s) === normalizeVariantPart(normalizedDefaultSize));
+    const hasValidDefaultColor = !normalizedDefaultColor || colors.some((c) => normalizeVariantPart(c) === normalizeVariantPart(normalizedDefaultColor));
+
+    if (!hasValidDefaultSize || !hasValidDefaultColor) {
+        throw new ApiError(400, 'Default variant must exist in provided sizes/colors.');
+    }
+
+    const defaultSelection = {};
+    if (rawVariants?.defaultSelection && typeof rawVariants.defaultSelection === 'object') {
+        Object.entries(rawVariants.defaultSelection).forEach(([axis, value]) => {
+            const axisKey = normalizeAxisName(axis);
+            const selectedValue = String(value || '').trim();
+            if (!axisKey || !selectedValue) return;
+            const axisMeta = attributes.find((attr) => attr.axisKey === axisKey);
+            if (!axisMeta) return;
+            const matched = axisMeta.values.find(
+                (candidate) => normalizeVariantPart(candidate) === normalizeVariantPart(selectedValue)
+            );
+            if (matched) defaultSelection[axisKey] = matched;
+        });
+    }
+
+    return {
+        sizes,
+        colors,
+        attributes: attributes.map((attr) => ({ name: attr.name, values: attr.values })),
+        prices,
+        stockMap,
+        imageMap,
+        defaultVariant: {
+            size: normalizedDefaultSize,
+            color: normalizedDefaultColor,
+        },
+        defaultSelection,
+    };
+};
+
+const calculateVariantAggregateStock = (variants = {}) => {
+    const entries = toObjectEntries(variants.stockMap);
+    if (!entries.length) return null;
+    return entries.reduce((sum, [, value]) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? sum + parsed : sum;
+    }, 0);
+};
+
+// GET /api/vendor/products
+export const getVendorProducts = asyncHandler(async (req, res) => {
+    const { search, stock } = req.query;
+    const { page, limit, skip, calculatePages } = parsePagination(req.query, {
+        defaultLimit: 20,
+        maxLimit: 1000,
+    });
+    const flag = channelToProductFlag(req.vendorWorkspace);
+    const filter = { vendorId: req.user.id, isDeleted: { $ne: true } };
+    if (String(req.query.includeUnpublished) !== 'true') filter[flag] = true;
+    if (search) filter.$text = { $search: search };
+    if (stock) filter.stock = stock;
+
+    const [products, total] = await Promise.all([
+        Product.find(filter)
+            .select('-faqs -relatedProducts -__v')
+            .populate('categoryId', 'name')
+            .populate('brandId', 'name')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+        Product.countDocuments(filter),
+    ]);
+    res.status(200).json(new ApiResponse(200, { products, total, page, pages: calculatePages(total), limit }, 'Products fetched.'));
+});
+
+// GET /api/vendor/products/:id
+export const getVendorProductById = asyncHandler(async (req, res) => {
+    const product = await Product.findOne({ _id: req.params.id, vendorId: req.user.id, isDeleted: { $ne: true } })
+        .populate('categoryId', 'name parentId')
+        .populate('brandId', 'name')
+        .lean();
+    if (!product) throw new ApiError(404, 'Product not found or access denied.');
+    res.status(200).json(new ApiResponse(200, product, 'Product fetched.'));
+});
+
+// POST /api/vendor/products
+export const createProduct = asyncHandler(async (req, res) => {
+    const { name, ...rest } = req.body;
+    stripAdminPublicationFields(rest);
+    if (!name) throw new ApiError(400, 'Product name is required.');
+    const slug = slugify(name) + '-' + Date.now();
+    const stockQuantity = Number(rest.stockQuantity ?? 0);
+    const lowStockThreshold = Number(rest.lowStockThreshold ?? 10);
+    if (!Number.isFinite(stockQuantity) || stockQuantity < 0) {
+        throw new ApiError(400, 'Invalid stock quantity.');
+    }
+    if (!Number.isFinite(lowStockThreshold) || lowStockThreshold < 0) {
+        throw new ApiError(400, 'Invalid low stock threshold.');
+    }
+    const price = Number(rest.price);
+    if (!Number.isFinite(price) || price < 0) {
+        throw new ApiError(400, 'Invalid product price.');
+    }
+    const normalizedVariants = normalizeVariantsPayload(rest.variants, price);
+    const variantAggregateStock = calculateVariantAggregateStock(normalizedVariants);
+    const finalStockQuantity = Number.isFinite(variantAggregateStock)
+        ? variantAggregateStock
+        : stockQuantity;
+    const stock = deriveStockStatus(finalStockQuantity, lowStockThreshold);
+
+    // Policy gate for NEW products only. Off by default; see
+    // services/shipping/shippingPolicy.service.js for why.
+    await assertShippingPolicy(rest, req.vendorWorkspace);
+
+    const channels = await getVendorChannels(req.user.id);
+    const currentFlag = channelToProductFlag(req.vendorWorkspace);
+    rest.retailEnabled = currentFlag === 'retailEnabled';
+    rest.wholesaleEnabled = currentFlag === 'wholesaleEnabled';
+    rest.quickCommerceEnabled = currentFlag === 'quickCommerceEnabled';
+
+    const resolvedWholesale = resolveWholesalePayload({
+        retailEnabled: rest.retailEnabled,
+        wholesaleEnabled: rest.wholesaleEnabled,
+        wholesale: rest.wholesale,
+        price,
+        stockQuantity: finalStockQuantity,
+        vendorWholesaleEnabled: rest.wholesaleEnabled === true ? channels.wholesale : false,
+        quickCommerceEnabled: rest.quickCommerceEnabled === true,
+    });
+
+    const resolvedQuickCommerce = resolveQuickCommercePayload({
+        quickCommerceEnabled: rest.quickCommerceEnabled,
+        quickCommerce: rest.quickCommerce,
+        quickCommerceCategoryId: rest.quickCommerceCategoryId,
+        vendorQuickCommerceEnabled: channels.quickCommerce,
+        categoryExperience: rest.quickCommerceEnabled === true
+            ? await getCategoryExperience(rest.quickCommerceCategoryId)
+            : null,
+    });
+
+    // A product must sell somewhere. Checked here as well as in the pre-save
+    // hook so the failure surfaces as a 400 rather than a 500.
+    if (rest.retailEnabled === false && resolvedWholesale.wholesaleEnabled !== true
+        && resolvedQuickCommerce.quickCommerceEnabled !== true) {
+        throw new ApiError(400, 'At least one selling channel (Retail, Wholesale, or Quick Commerce) must be enabled for this product.');
+    }
+
+    // Drop raw channel payloads; the resolvers are the only validated source.
+    const {
+        wholesale: _rawWholesale,
+        quickCommerce: _rawQuickCommerce,
+        ...restWithoutChannelPayloads
+    } = rest;
+
+    const product = await Product.create({
+        name,
+        slug,
+        vendorId: req.user.id,
+        ...restWithoutChannelPayloads,
+        price,
+        variants: normalizedVariants,
+        faqs: sanitizeFaqs(rest.faqs),
+        stockQuantity: finalStockQuantity,
+        lowStockThreshold,
+        stock,
+        ...resolvedWholesale,
+        ...resolvedQuickCommerce,
+        isActive: true,
+        isDeleted: false,
+        publicationStatus: 'PENDING_REVIEW',
+        publicationStatusUpdatedAt: new Date(),
+    });
+    Vendor.findById(req.user.id).select('storeName name').lean()
+        .then((vendor) => notifyAdminsOfVendorProducts({
+            vendorId: req.user.id,
+            vendorName: vendor?.storeName || vendor?.name || 'A vendor',
+            productIds: [product._id],
+            productName: product.name,
+        }))
+        .catch((error) => console.warn(`[Product Review Notification] ${error.message}`));
+    res.status(201).json(new ApiResponse(201, product, 'Product created.'));
+});
+
+// PUT /api/vendor/products/:id
+export const updateProduct = asyncHandler(async (req, res) => {
+    stripAdminPublicationFields(req.body);
+    const currentFlag = channelToProductFlag(req.vendorWorkspace);
+    const product = await Product.findOne({ _id: req.params.id, vendorId: req.user.id, isDeleted: { $ne: true } });
+    if (!product) throw new ApiError(404, 'Product not found or access denied.');
+    if (req.body.expectedVersion !== undefined && Number(req.body.expectedVersion) !== Number(product.__v)) {
+        const error = new ApiError(409, 'Product changed in another workspace. Refresh and try again.');
+        error.errorCode = 'PRODUCT_VERSION_CONFLICT';
+        throw error;
+    }
+    delete req.body.expectedVersion;
+    const channelFlags = ['retailEnabled', 'wholesaleEnabled', 'quickCommerceEnabled'];
+    const crossChannelFields = channelFlags.filter((flag) => flag !== currentFlag && Object.prototype.hasOwnProperty.call(req.body, flag));
+    if (crossChannelFields.length) throw new ApiError(400, 'Use the target workspace to publish or unpublish another channel.');
+    // Editing shared fields must NOT change publication state. This line used
+    // to force `req.body[currentFlag] = true`, so an unrelated description edit
+    // silently re-published a channel the vendor had deliberately unpublished
+    // — and editing a wholesale-only product from Retail published it to
+    // Retail. Publication is changed only through
+    // PATCH /products/:id/channels/:channel.
+    // Retail publication is opt-out: legacy products predate the flag, so
+    // "not explicitly false" is the correct test there. The other two are opt-in.
+    const publishedHere = currentFlag === 'retailEnabled'
+        ? product.retailEnabled !== false
+        : product[currentFlag] === true;
+    if (!publishedHere) {
+        throw new ApiError(
+            409,
+            'This product is not published on the current workspace. Publish it here first, or switch to a workspace where it is published.',
+            [{ code: 'PRODUCT_NOT_PUBLISHED_IN_WORKSPACE', workspace: req.vendorWorkspace }]
+        );
+    }
+    // Snapshot the stored wholesale config before the bulk assign, so incoming
+    // tier data is only ever persisted after passing validation below.
+    const storedWholesale = product.wholesale?.toObject?.() ?? product.wholesale;
+    const storedQuickCommerce = product.quickCommerce?.toObject?.() ?? product.quickCommerce;
+    const storedQuickCommerceCategoryId = product.quickCommerceCategoryId;
+    Object.assign(product, req.body);
+    if (Object.prototype.hasOwnProperty.call(req.body, 'faqs')) {
+        product.faqs = sanitizeFaqs(req.body.faqs);
+    }
+    if (typeof req.body.stockQuantity !== 'undefined' || typeof req.body.lowStockThreshold !== 'undefined') {
+        const stockQuantity = Number(product.stockQuantity ?? 0);
+        const lowStockThreshold = Number(product.lowStockThreshold ?? 10);
+        if (!Number.isFinite(stockQuantity) || stockQuantity < 0) {
+            throw new ApiError(400, 'Invalid stock quantity.');
+        }
+        if (!Number.isFinite(lowStockThreshold) || lowStockThreshold < 0) {
+            throw new ApiError(400, 'Invalid low stock threshold.');
+        }
+        product.stockQuantity = stockQuantity;
+        product.lowStockThreshold = lowStockThreshold;
+        product.stock = deriveStockStatus(stockQuantity, lowStockThreshold);
+    }
+    if (typeof req.body.price !== 'undefined') {
+        const price = Number(req.body.price);
+        if (!Number.isFinite(price) || price < 0) {
+            throw new ApiError(400, 'Invalid product price.');
+        }
+        product.price = price;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'variants')) {
+        product.variants = normalizeVariantsPayload(req.body.variants, product.price);
+        const variantAggregateStock = calculateVariantAggregateStock(product.variants);
+        if (Number.isFinite(variantAggregateStock)) {
+            product.stockQuantity = variantAggregateStock;
+        }
+    }
+    // Keep stock state deterministic from quantity + threshold.
+    product.stock = deriveStockStatus(
+        Number(product.stockQuantity ?? 0),
+        Number(product.lowStockThreshold ?? 10)
+    );
+
+    // Only touch selling-channel data when the request explicitly references it,
+    // so partial updates never clear existing wholesale configuration.
+    const touchesWholesale = ['retailEnabled', 'wholesaleEnabled', 'wholesale']
+        .some((key) => Object.prototype.hasOwnProperty.call(req.body, key));
+    const touchesQuickCommerce = ['retailEnabled', 'quickCommerceEnabled', 'quickCommerce', 'quickCommerceCategoryId']
+        .some((key) => Object.prototype.hasOwnProperty.call(req.body, key));
+
+    const channels = (touchesWholesale || touchesQuickCommerce)
+        ? await getVendorChannels(req.user.id)
+        : null;
+
+    if (touchesWholesale) {
+        const resolvedWholesale = resolveWholesalePayload({
+            retailEnabled: product.retailEnabled,
+            wholesaleEnabled: product.wholesaleEnabled,
+            wholesale: product.wholesale,
+            price: product.price,
+            stockQuantity: product.stockQuantity,
+            vendorWholesaleEnabled: product.wholesaleEnabled === true ? channels.wholesale : false,
+            quickCommerceEnabled: product.quickCommerceEnabled === true,
+        });
+        product.retailEnabled = resolvedWholesale.retailEnabled;
+        product.wholesaleEnabled = resolvedWholesale.wholesaleEnabled;
+        // When wholesale is off, keep the previously stored configuration rather
+        // than persisting unvalidated tier data from the request body.
+        product.wholesale = resolvedWholesale.wholesale ?? storedWholesale;
+    }
+
+    if (touchesQuickCommerce) {
+        const resolvedQuickCommerce = resolveQuickCommercePayload({
+            quickCommerceEnabled: product.quickCommerceEnabled,
+            quickCommerce: product.quickCommerce,
+            quickCommerceCategoryId: product.quickCommerceCategoryId,
+            vendorQuickCommerceEnabled: channels.quickCommerce,
+            categoryExperience: product.quickCommerceEnabled === true
+                ? await getCategoryExperience(product.quickCommerceCategoryId)
+                : null,
+        });
+        product.quickCommerceEnabled = resolvedQuickCommerce.quickCommerceEnabled;
+        // Disabling the channel preserves stored configuration rather than
+        // persisting unvalidated data from the request body.
+        if (resolvedQuickCommerce.quickCommerceEnabled) {
+            product.quickCommerceCategoryId = resolvedQuickCommerce.quickCommerceCategoryId;
+            product.quickCommerce = resolvedQuickCommerce.quickCommerce;
+        } else {
+            product.quickCommerceCategoryId = storedQuickCommerceCategoryId;
+            product.quickCommerce = storedQuickCommerce;
+        }
+    }
+
+    if (product.retailEnabled === false && product.wholesaleEnabled !== true && product.quickCommerceEnabled !== true) {
+        throw new ApiError(400, 'At least one selling channel (Retail, Wholesale, or Quick Commerce) must be enabled for this product.');
+    }
+
+    if (product.retailEnabled || product.wholesaleEnabled || product.quickCommerceEnabled) {
+        product.isActive = true;
+        product.isDeleted = false;
+    }
+
+    await assertShippingPolicy(product, req.vendorWorkspace);
+
+    product.increment();
+    await product.save();
+    res.status(200).json(new ApiResponse(200, product, 'Product updated.'));
+});
+
+// DELETE /api/vendor/products/:id
+export const deleteProduct = asyncHandler(async (req, res) => {
+    const flag = channelToProductFlag(req.vendorWorkspace);
+    const product = await Product.findOne({ _id: req.params.id, vendorId: req.user.id, [flag]: true });
+    if (!product) throw new ApiError(404, 'Product not found or access denied.');
+    product[flag] = false;
+    if (!product.retailEnabled && !product.wholesaleEnabled && !product.quickCommerceEnabled) {
+        product.isDeleted = true;
+        product.isActive = false;
+    }
+    await product.save();
+    res.status(200).json(new ApiResponse(200, null, 'Product unpublished from this workspace.'));
+});
+
+// PATCH /api/vendor/products/:id/channels/:channel
+// Publishing is performed from the target workspace, whose access has already
+// been verified by middleware. Shared core fields are not changed here.
+export const updateProductChannel = asyncHandler(async (req, res) => {
+    const channel = String(req.params.channel || '').replace('-', '_');
+    if (channel !== req.vendorWorkspace) throw new ApiError(403, 'Switch to the target workspace to change publishing.');
+    const flag = channelToProductFlag(channel);
+    if (!flag) throw new ApiError(400, 'Invalid product channel.');
+    if (typeof req.body.enabled !== 'boolean') throw new ApiError(400, 'enabled must be a boolean.');
+    const enabled = req.body.enabled;
+    const product = await Product.findOne({ _id: req.params.id, vendorId: req.user.id });
+    if (!product) throw new ApiError(404, 'Product not found or access denied.');
+    if (req.body.expectedVersion !== undefined && Number(req.body.expectedVersion) !== Number(product.__v)) {
+        const error = new ApiError(409, 'Product changed in another workspace. Refresh and try again.');
+        error.errorCode = 'PRODUCT_VERSION_CONFLICT';
+        throw error;
+    }
+
+    if (enabled && channel === 'wholesale') {
+        const resolved = resolveWholesalePayload({
+            retailEnabled: product.retailEnabled,
+            wholesaleEnabled: true,
+            wholesale: req.body.wholesale || product.wholesale,
+            price: product.price,
+            stockQuantity: product.stockQuantity,
+            vendorWholesaleEnabled: true,
+            quickCommerceEnabled: product.quickCommerceEnabled,
+        });
+        product.wholesale = resolved.wholesale;
+    }
+    if (enabled && channel === 'quick_commerce') {
+        const quickCommerceCategoryId = req.body.quickCommerceCategoryId || product.quickCommerceCategoryId;
+        const resolved = resolveQuickCommercePayload({
+            quickCommerceEnabled: true,
+            quickCommerce: req.body.quickCommerce || product.quickCommerce,
+            quickCommerceCategoryId,
+            vendorQuickCommerceEnabled: true,
+            categoryExperience: await getCategoryExperience(quickCommerceCategoryId),
+        });
+        product.quickCommerceCategoryId = resolved.quickCommerceCategoryId;
+        product.quickCommerce = resolved.quickCommerce;
+    }
+    product[flag] = enabled;
+    if (enabled) {
+        product.isDeleted = false;
+        product.isActive = true;
+    }
+    product.increment();
+    await product.save();
+    res.status(200).json(new ApiResponse(200, product, enabled ? 'Product published.' : 'Product unpublished.'));
+});
+
+// PATCH /api/vendor/stock/:productId
+export const updateStock = asyncHandler(async (req, res) => {
+    const { stockQuantity } = req.body;
+    const flag = channelToProductFlag(req.vendorWorkspace);
+    const product = await Product.findOne({ _id: req.params.productId, vendorId: req.user.id, [flag]: true });
+    if (!product) throw new ApiError(404, 'Product not found.');
+
+    const numericStockQuantity = Number(stockQuantity);
+    if (
+        !Number.isFinite(numericStockQuantity) ||
+        numericStockQuantity < 0 ||
+        !Number.isInteger(numericStockQuantity)
+    ) {
+        throw new ApiError(400, 'Invalid stock quantity.');
+    }
+
+    product.stockQuantity = numericStockQuantity;
+    product.stock = deriveStockStatus(numericStockQuantity, product.lowStockThreshold);
+    await product.save();
+
+    res.status(200).json(new ApiResponse(200, product, 'Stock updated.'));
+});
