@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FiShoppingBag, FiTrash2, FiStar, FiHeart } from 'react-icons/fi';
+import { FiShoppingCart, FiTrash2, FiStar, FiHeart } from 'react-icons/fi';
 import { formatPrice, getPlaceholderImage } from '../../../../shared/utils/helpers';
 import LazyImage from '../../../../shared/components/LazyImage';
 import { useCartStore } from '../../../../shared/store/useStore';
@@ -122,8 +122,9 @@ const WishlistGridItem = ({ item, index, onMoveToCart, onRemove }) => {
             }}
             whileTap={{ scale: 0.95 }}
             style={{ willChange: "transform", transform: "translateZ(0)" }}
-            className="w-full py-1 rounded-md font-semibold text-[10px] transition-all duration-300 flex items-center justify-center gap-1 mt-auto gradient-green text-white group/btn">
-            <FiShoppingBag className="text-xs transition-transform" />
+            className="w-full py-1 rounded-md font-bold text-[10px] transition-all duration-300 flex items-center justify-center gap-1 mt-auto border border-emerald-500/80 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white group/btn shadow-2xs hover:shadow-sm"
+          >
+            <FiShoppingCart className="text-xs text-emerald-600 group-hover/btn:text-white transition-colors stroke-[2.2]" />
             <span>{t('Add')}</span>
           </motion.button>
         )}

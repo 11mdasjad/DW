@@ -4,6 +4,7 @@ import {
   FiStar,
   FiHeart,
   FiShoppingBag,
+  FiShoppingCart,
   FiMinus,
   FiPlus,
   FiArrowLeft,
@@ -1148,20 +1149,25 @@ const MobileProductDetail = () => {
                       {t('Remove from Cart')}
                     </Button>
                   ) : (
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      className="flex-1 h-12 sm:h-14 text-sm sm:text-base font-bold shadow-sm active:scale-[0.98] transition-all"
+                    <button
+                      type="button"
                       disabled={product.stock === "out_of_stock" || belowMinimumOrder}
                       onClick={handleAddToCart}
-                      leftIcon={<FiShoppingBag className="text-base sm:text-lg shrink-0" />}
+                      className={`flex-1 h-12 sm:h-14 rounded-2xl border-2 border-emerald-500 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white text-sm sm:text-base font-bold flex items-center justify-center gap-2 shadow-xs hover:shadow-md active:scale-[0.98] transition-all group/pdetail ${
+                        product.stock === "out_of_stock" || belowMinimumOrder
+                          ? 'opacity-50 cursor-not-allowed border-gray-300 bg-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-400'
+                          : ''
+                      }`}
                     >
-                      {product.stock === "out_of_stock"
-                        ? t("Out of Stock")
-                        : belowMinimumOrder
-                          ? `${t("Minimum Order")}: ${bulkPricing.minimumQuantity} ${t("Units")}`
-                          : t("Add to Cart")}
-                    </Button>
+                      <FiShoppingCart className="text-lg sm:text-xl shrink-0 text-emerald-600 group-hover/pdetail:text-white transition-colors stroke-[2.2]" />
+                      <span>
+                        {product.stock === "out_of_stock"
+                          ? t("Out of Stock")
+                          : belowMinimumOrder
+                            ? `${t("Minimum Order")}: ${bulkPricing.minimumQuantity} ${t("Units")}`
+                            : t("Add to Cart")}
+                      </span>
+                    </button>
                   )}
 
                   <Button

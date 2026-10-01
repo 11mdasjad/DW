@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiShoppingBag, FiHeart, FiShare2, FiX } from 'react-icons/fi';
+import { FiShoppingCart, FiHeart, FiShare2, FiX } from 'react-icons/fi';
 import { createPortal } from 'react-dom';
 
 const LongPressMenu = ({ isOpen, onClose, position, onAddToCart, onAddToWishlist, onShare, isInWishlist }) => {
@@ -7,14 +7,14 @@ const LongPressMenu = ({ isOpen, onClose, position, onAddToCart, onAddToWishlist
 
   const menuItems = [
     {
-      icon: FiShoppingBag,
+      icon: FiShoppingCart,
       label: 'Add to Cart',
       onClick: () => {
         onAddToCart();
         onClose();
       },
-      color: 'text-primary-600',
-      bgColor: 'bg-primary-50',
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-50',
     },
     {
       icon: FiHeart,

@@ -1,4 +1,4 @@
-import { FiHeart, FiShoppingBag, FiStar, FiTrash2 } from "react-icons/fi";
+import { FiHeart, FiShoppingCart, FiStar, FiTrash2 } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useCartStore, useUIStore } from "../../../../shared/store/useStore";
@@ -302,11 +302,13 @@ const MobileProductCard = ({ product }) => {
                 onClick={handleAddToCart}
                 disabled={product.stock === "out_of_stock"}
                 whileTap={{ scale: 0.95 }}
-                className={`w-full py-3 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2 ${product.stock === "out_of_stock"
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "gradient-green text-white hover:shadow-glow-green"
-                  }`}>
-                <FiShoppingBag className="text-base" />
+                className={`w-full py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center justify-center gap-1.5 border border-emerald-500/80 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white group/mbcard ${
+                  product.stock === "out_of_stock"
+                    ? "bg-gray-100 text-gray-400 border-gray-300 cursor-not-allowed hover:bg-gray-100 hover:text-gray-400"
+                    : "shadow-2xs hover:shadow-sm"
+                }`}
+              >
+                <FiShoppingCart className="text-sm sm:text-base text-emerald-600 group-hover/mbcard:text-white transition-colors stroke-[2.2]" />
                 <span>
                   {product.stock === "out_of_stock"
                     ? "Out of Stock"

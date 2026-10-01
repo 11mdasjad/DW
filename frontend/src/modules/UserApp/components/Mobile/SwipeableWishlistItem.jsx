@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { FiShoppingBag, FiTrash2 } from "react-icons/fi";
+import { FiShoppingCart, FiTrash2 } from "react-icons/fi";
 import { useWishlistStore } from "../../../../shared/store/wishlistStore";
 import { useCartStore } from "../../../../shared/store/useStore";
 import {
@@ -130,8 +130,9 @@ const SwipeableWishlistItem = ({ item, index, onMoveToCart, onRemove }) => {
             ) : (
               <button
                 onClick={() => onMoveToCart(item)}
-                className="flex-1 py-2 sm:py-2.5 gradient-green text-white rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap hover:shadow-glow-green transition-all">
-                <FiShoppingBag className="text-sm sm:text-base" />
+                className="flex-1 py-2 sm:py-2.5 bg-white border border-emerald-500/80 hover:bg-emerald-600 text-emerald-700 hover:text-white rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap transition-all group/wish shadow-2xs hover:shadow-sm"
+              >
+                <FiShoppingCart className="text-sm sm:text-base text-emerald-600 group-hover/wish:text-white transition-colors stroke-[2.2]" />
                 {t('Add to Cart')}
               </button>
             )}

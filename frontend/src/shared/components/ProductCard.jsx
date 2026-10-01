@@ -1,4 +1,4 @@
-import { FiHeart, FiShoppingBag, FiStar, FiTrash2, FiZap, FiMinus, FiPlus } from "react-icons/fi";
+import { FiHeart, FiShoppingCart, FiStar, FiTrash2, FiZap, FiMinus, FiPlus } from "react-icons/fi";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import { useCartStore, useUIStore } from "../store/useStore";
@@ -498,20 +498,20 @@ const ProductCard = ({ product, hideRating = false, isFlashSale = false, variant
               />
             </div>
           ) : (
-            <Button
+            <button
               ref={buttonRef}
-              variant={currentVariantConfig.buttonVariant}
-              size="sm"
-              fullWidth
-              disabled={isOutOfStock}
-              isLoading={isAdding}
+              type="button"
+              disabled={isOutOfStock || isAdding}
               onClick={handleAddToCart}
-              leftIcon={<FiShoppingBag className="text-xs shrink-0" />}
+              className={`w-full h-8 sm:h-9 rounded-xl border border-emerald-500/80 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all duration-200 shadow-2xs hover:shadow-sm active:scale-95 group/btn ${
+                isOutOfStock
+                  ? 'opacity-50 cursor-not-allowed border-gray-300 bg-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-400'
+                  : ''
+              }`}
             >
-              {isOutOfStock
-                ? t('Out of Stock')
-                : t('Add to Cart')}
-            </Button>
+              <FiShoppingCart className="text-sm shrink-0 text-emerald-600 group-hover/btn:text-white transition-colors stroke-[2.2]" />
+              <span>{isOutOfStock ? t('Out of Stock') : isAdding ? t('Adding...') : t('Add to Cart')}</span>
+            </button>
           )}
         </div>
       </Card>
