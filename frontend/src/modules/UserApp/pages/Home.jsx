@@ -686,6 +686,7 @@ const MobileHome = () => {
                 <FiArrowRight className="text-xs shrink-0 opacity-50 transition-transform duration-300 group-hover:translate-x-1" />
               </button>
             </motion.div>
+          </div>
 
           {/* Experience Switcher / Toggle Section */}
           <ExperienceSwitcher />
