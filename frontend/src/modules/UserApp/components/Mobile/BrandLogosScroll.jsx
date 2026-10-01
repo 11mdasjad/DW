@@ -71,7 +71,10 @@ const BrandLogosScroll = ({ brands = null }) => {
           <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 sm:w-16 bg-gradient-to-l from-white via-white/80 to-transparent z-10" />
 
           {/* Continuous Automatic Hardware-Accelerated Marquee Track */}
-          <div className="brand-marquee-track flex gap-4 sm:gap-6 md:gap-8 items-center py-2">
+          <div
+            className="brand-marquee-track flex gap-4 sm:gap-6 md:gap-8 items-center py-2"
+            style={{ '--marquee-duration': '180s' }}
+          >
             {marqueeBrands.map((brand, index) => {
               const uniqueKey = `${brand.id || brand._id || brand.name}-${index}`;
               const hasValidLogo = Boolean(
