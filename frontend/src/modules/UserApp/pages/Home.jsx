@@ -624,299 +624,108 @@ const MobileHome = () => {
             transform: `translateY(${Math.min(pullDistance, 80)}px)`,
             transition: isPulling ? "none" : "transform 0.3s ease-out",
           }}>
-          {/* ══════════════════════════════════════════════════
-               HERO — MODERN ROSE-VIOLET  |  4 × 4 GRID
-          ══════════════════════════════════════════════════ */}
+          {/* ── HERO BANNER — Clean 5:3 White/Gray ── */}
           <div
-            className="relative w-full overflow-hidden"
+            className="relative w-full flex items-center justify-center overflow-hidden"
             style={{
-              minHeight: "100vh",
-              background: "linear-gradient(125deg, #0d001a 0%, #160030 25%, #0a0a1f 55%, #00101a 100%)",
+              aspectRatio: "5 / 3",
+              minHeight: "420px",
+              maxHeight: "660px",
+              background: "linear-gradient(160deg, #ffffff 0%, #f3f4f6 45%, #e5e7eb 100%)",
             }}
           >
-            {/* ── Background atmosphere ── */}
-            <div className="pointer-events-none absolute inset-0">
-              {/* Hot-pink blob top-left */}
-              <div className="absolute -top-40 -left-20 w-[700px] h-[700px] rounded-full"
-                style={{ background: "radial-gradient(circle, rgba(236,72,153,0.18) 0%, transparent 65%)" }} />
-              {/* Violet blob center-right */}
-              <div className="absolute top-1/4 right-0 w-[600px] h-[600px] rounded-full"
-                style={{ background: "radial-gradient(circle, rgba(139,92,246,0.2) 0%, transparent 65%)" }} />
-              {/* Cyan accent bottom */}
-              <div className="absolute bottom-0 right-1/3 w-[400px] h-[400px] rounded-full"
-                style={{ background: "radial-gradient(circle, rgba(6,182,212,0.12) 0%, transparent 65%)" }} />
-              {/* Dot grid */}
-              <div className="absolute inset-0 opacity-[0.035]"
-                style={{
-                  backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)",
-                  backgroundSize: "32px 32px",
-                }} />
-            </div>
+            {/* Subtle background texture */}
+            <div className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage: "radial-gradient(circle, rgba(0,0,0,0.04) 1px, transparent 1px)",
+                backgroundSize: "28px 28px",
+              }}
+            />
 
-            {/* ── Two-column content — 50 / 50 ── */}
-            <div
-              className="relative z-10 min-h-screen flex items-stretch"
-              style={{ paddingBottom: "56px" /* room for trust bar */ }}
-            >
+            {/* Soft gray accent shape — top right */}
+            <div className="pointer-events-none absolute -top-20 -right-20 w-96 h-96 rounded-full"
+              style={{ background: "radial-gradient(circle, rgba(209,213,219,0.7) 0%, transparent 70%)" }} />
 
-              {/* ════ LEFT HALF — Text ════ */}
-              <div className="flex-1 flex flex-col justify-center px-8 md:px-12 lg:px-16 xl:px-20 py-16">
+            {/* Soft gray accent shape — bottom left */}
+            <div className="pointer-events-none absolute -bottom-24 -left-16 w-80 h-80 rounded-full"
+              style={{ background: "radial-gradient(circle, rgba(229,231,235,0.9) 0%, transparent 70%)" }} />
 
-                {/* Top badge */}
-                <motion.div
-                  initial={{ opacity: 0, y: -16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.45 }}
-                  className="flex items-center gap-3 mb-7 w-fit"
+            {/* ── Centered Content ── */}
+            <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 max-w-3xl mx-auto">
+
+              {/* Eyebrow label */}
+              <motion.span
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="inline-block mb-5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-[0.16em]"
+                style={{ background: "#f3f4f6", border: "1px solid #d1d5db", color: "#6b7280" }}
+              >
+                Dwell Mart — India's Super Store
+              </motion.span>
+
+              {/* Main advertising line */}
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.55, delay: 0.1 }}
+                className="font-black leading-tight tracking-tight mb-4"
+                style={{ fontSize: "clamp(2rem, 4.5vw, 4rem)", color: "#111827" }}
+              >
+                Everything You Need,{" "}
+                <span style={{ color: "#374151" }}>All in One Place.</span>
+              </motion.h1>
+
+              {/* Subtitle / advertising copy */}
+              <motion.p
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.22 }}
+                className="font-medium leading-relaxed mb-8"
+                style={{ fontSize: "clamp(0.95rem, 1.5vw, 1.1rem)", color: "#6b7280", maxWidth: "34rem" }}
+              >
+                Millions of products · Verified sellers · Fast delivery across India
+              </motion.p>
+
+              {/* CTA Buttons */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45, delay: 0.34 }}
+                className="flex items-center gap-4 flex-wrap justify-center"
+              >
+                {/* Shop Now */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/shop")}
+                  className="group flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-bold text-white cursor-pointer transition-all duration-250 hover:-translate-y-0.5 hover:shadow-xl active:scale-95"
+                  style={{ background: "#111827", fontSize: "0.95rem", boxShadow: "0 4px 18px rgba(17,24,39,0.22)" }}
                 >
-                  <div
-                    className="flex items-center gap-2.5 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest"
-                    style={{
-                      background: "linear-gradient(135deg, rgba(236,72,153,0.15), rgba(139,92,246,0.15))",
-                      border: "1px solid rgba(236,72,153,0.35)",
-                      color: "#f472b6",
-                    }}
-                  >
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-pink-500" />
-                    </span>
-                    Dwell Mart — India's Super Store
-                  </div>
-                </motion.div>
+                  <FiShoppingBag className="text-base shrink-0" />
+                  <span>Shop Now</span>
+                  <FiArrowRight className="text-sm shrink-0 transition-transform duration-250 group-hover:translate-x-1" />
+                </button>
 
-                {/* Main headline */}
-                <motion.h1
-                  initial={{ opacity: 0, y: 28 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: 0.12 }}
-                  className="font-black tracking-tight leading-[1.04] mb-5"
-                  style={{ fontSize: "clamp(2.6rem, 5vw, 5.2rem)" }}
-                >
-                  <span className="text-white">Everything</span>
-                  <br />
-                  <span style={{
-                    background: "linear-gradient(90deg, #f472b6 0%, #c084fc 50%, #818cf8 100%)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundClip: "text",
-                  }}>You Need,</span>
-                  <br />
-                  <span className="text-white">All in </span>
-                  <span style={{
-                    background: "linear-gradient(90deg, #06b6d4 0%, #3b82f6 100%)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundClip: "text",
-                  }}>One Place.</span>
-                </motion.h1>
-
-                {/* Subtitle */}
-                <motion.p
-                  initial={{ opacity: 0, y: 18 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.26 }}
-                  className="font-medium leading-relaxed mb-9"
+                {/* Explore Deals */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/new-arrivals")}
+                  className="group flex items-center gap-2.5 px-7 py-3.5 rounded-xl font-bold cursor-pointer transition-all duration-250 hover:-translate-y-0.5 active:scale-95"
                   style={{
-                    fontSize: "clamp(0.95rem, 1.4vw, 1.15rem)",
-                    color: "rgba(203,213,225,0.75)",
-                    maxWidth: "36rem",
+                    background: "transparent",
+                    border: "1.5px solid #9ca3af",
+                    color: "#374151",
+                    fontSize: "0.95rem",
                   }}
                 >
-                  Shop across 16+ categories — groceries, electronics,
-                  fashion, beauty &amp; more. Fast delivery, verified sellers,
-                  unbeatable prices.
-                </motion.p>
-
-                {/* CTA buttons */}
-                <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.38 }}
-                  className="flex flex-wrap items-center gap-4 mb-10"
-                >
-                  {/* Primary */}
-                  <button
-                    type="button"
-                    onClick={() => navigate("/shop")}
-                    className="group flex items-center gap-3 rounded-2xl font-black text-white cursor-pointer transition-all duration-300 hover:-translate-y-1 active:scale-95"
-                    style={{
-                      padding: "14px 32px",
-                      fontSize: "clamp(0.9rem, 1.2vw, 1rem)",
-                      background: "linear-gradient(135deg, #ec4899, #8b5cf6)",
-                      boxShadow: "0 8px 36px rgba(236,72,153,0.4), 0 0 0 1px rgba(236,72,153,0.25)",
-                    }}
-                  >
-                    <FiShoppingBag className="text-lg shrink-0" />
-                    <span>Shop Now</span>
-                    <FiArrowRight className="text-sm shrink-0 transition-transform duration-300 group-hover:translate-x-1.5" />
-                  </button>
-
-                  {/* Secondary */}
-                  <button
-                    type="button"
-                    onClick={() => navigate("/new-arrivals")}
-                    className="group flex items-center gap-3 rounded-2xl font-bold text-white cursor-pointer transition-all duration-300 hover:-translate-y-1 active:scale-95"
-                    style={{
-                      padding: "13px 28px",
-                      fontSize: "clamp(0.9rem, 1.2vw, 1rem)",
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.18)",
-                      backdropFilter: "blur(16px)",
-                    }}
-                  >
-                    <FiZap className="text-lg text-yellow-400 shrink-0" />
-                    <span>Explore Deals</span>
-                    <FiArrowRight className="text-sm shrink-0 opacity-60 transition-transform duration-300 group-hover:translate-x-1" />
-                  </button>
-                </motion.div>
-
-                {/* Stats */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5, delay: 0.55 }}
-                  className="grid grid-cols-4 gap-4"
-                  style={{ maxWidth: "36rem" }}
-                >
-                  {[
-                    { value: "10M+", label: "Products", color: "#f472b6" },
-                    { value: "50K+", label: "Sellers",  color: "#c084fc" },
-                    { value: "4.8★", label: "Rating",   color: "#fbbf24" },
-                    { value: "24h",  label: "Delivery", color: "#06b6d4" },
-                  ].map(({ value, label, color }) => (
-                    <div
-                      key={label}
-                      className="flex flex-col items-center text-center rounded-2xl py-3 px-2"
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                      }}
-                    >
-                      <span className="font-black text-xl" style={{ color }}>{value}</span>
-                      <span className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider mt-0.5">{label}</span>
-                    </div>
-                  ))}
-                </motion.div>
-              </div>
-
-              {/* ════ RIGHT HALF — 4 × 4 Category Grid ════ */}
-              <div
-                className="hidden lg:flex items-center justify-center flex-shrink-0 py-16 pr-8 md:pr-12 lg:pr-16 xl:pr-20"
-                style={{ width: "50%" }}
-              >
-                <motion.div
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.65, delay: 0.2 }}
-                  className="w-full"
-                  style={{ maxWidth: "520px" }}
-                >
-                  {/* Section label */}
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] mb-4"
-                    style={{ color: "rgba(167,139,250,0.7)" }}>
-                    — Shop by Category
-                  </p>
-
-                  {/* 4 × 4 grid */}
-                  <div className="grid grid-cols-4 gap-3">
-                    {[
-                      { emoji: "🛒", name: "Grocery",     color: "#4ade80", glow: "rgba(74,222,128,0.2)"  },
-                      { emoji: "👗", name: "Fashion",     color: "#f472b6", glow: "rgba(244,114,182,0.2)" },
-                      { emoji: "📱", name: "Electronics", color: "#60a5fa", glow: "rgba(96,165,250,0.2)"  },
-                      { emoji: "🏠", name: "Home",        color: "#fbbf24", glow: "rgba(251,191,36,0.2)"  },
-                      { emoji: "💄", name: "Beauty",      color: "#e879f9", glow: "rgba(232,121,249,0.2)" },
-                      { emoji: "🧸", name: "Toys",        color: "#fb923c", glow: "rgba(251,146,60,0.2)"  },
-                      { emoji: "🏋️", name: "Sports",      color: "#34d399", glow: "rgba(52,211,153,0.2)"  },
-                      { emoji: "📚", name: "Books",       color: "#a78bfa", glow: "rgba(167,139,250,0.2)" },
-                      { emoji: "🚗", name: "Automotive",  color: "#38bdf8", glow: "rgba(56,189,248,0.2)"  },
-                      { emoji: "🍳", name: "Kitchen",     color: "#f87171", glow: "rgba(248,113,113,0.2)" },
-                      { emoji: "💊", name: "Health",      color: "#86efac", glow: "rgba(134,239,172,0.2)" },
-                      { emoji: "🐾", name: "Pets",        color: "#fca5a5", glow: "rgba(252,165,165,0.2)" },
-                      { emoji: "✈️", name: "Travel",      color: "#7dd3fc", glow: "rgba(125,211,252,0.2)" },
-                      { emoji: "🎮", name: "Gaming",      color: "#c084fc", glow: "rgba(192,132,252,0.2)" },
-                      { emoji: "🌿", name: "Garden",      color: "#86efac", glow: "rgba(134,239,172,0.2)" },
-                      { emoji: "🎨", name: "Art",         color: "#fdba74", glow: "rgba(253,186,116,0.2)" },
-                    ].map(({ emoji, name, color, glow }, i) => (
-                      <motion.button
-                        key={name}
-                        type="button"
-                        onClick={() => navigate("/shop")}
-                        initial={{ opacity: 0, scale: 0.75, y: 16 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        transition={{ duration: 0.38, delay: 0.3 + i * 0.04 }}
-                        whileHover={{ scale: 1.08, y: -5 }}
-                        whileTap={{ scale: 0.93 }}
-                        className="flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 cursor-pointer"
-                        style={{
-                          background: `linear-gradient(145deg, ${glow}, rgba(255,255,255,0.03))`,
-                          border: `1px solid ${color}33`,
-                          backdropFilter: "blur(12px)",
-                          boxShadow: `0 2px 16px ${glow}, inset 0 1px 0 rgba(255,255,255,0.07)`,
-                          transition: "all 0.25s ease",
-                        }}
-                      >
-                        <span className="text-2xl leading-none">{emoji}</span>
-                        <span
-                          className="text-[10px] font-bold text-center leading-tight"
-                          style={{ color }}
-                        >
-                          {name}
-                        </span>
-                      </motion.button>
-                    ))}
-                  </div>
-
-                  {/* "View All" chip below grid */}
-                  <motion.button
-                    type="button"
-                    onClick={() => navigate("/shop")}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 1.0 }}
-                    className="mt-4 w-full flex items-center justify-center gap-2 rounded-2xl py-3 font-bold text-sm cursor-pointer transition-all duration-300 hover:-translate-y-0.5"
-                    style={{
-                      background: "rgba(139,92,246,0.12)",
-                      border: "1px solid rgba(139,92,246,0.3)",
-                      color: "#c084fc",
-                    }}
-                  >
-                    <FiGrid className="text-base shrink-0" />
-                    <span>View All 100+ Categories</span>
-                    <FiArrowRight className="text-sm shrink-0" />
-                  </motion.button>
-                </motion.div>
-              </div>
+                  <FiZap className="text-base shrink-0 text-gray-500" />
+                  <span>Explore Deals</span>
+                  <FiArrowRight className="text-sm shrink-0 opacity-50 transition-transform duration-250 group-hover:translate-x-1" />
+                </button>
+              </motion.div>
             </div>
-
-            {/* ── Bottom trust ticker ── */}
-            <motion.div
-              className="absolute bottom-0 left-0 right-0 z-20"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.9, duration: 0.5 }}
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                borderTop: "1px solid rgba(255,255,255,0.07)",
-                backdropFilter: "blur(20px)",
-              }}
-            >
-              <div className="max-w-screen-2xl mx-auto px-8 py-3 flex items-center justify-center gap-6 md:gap-10 flex-wrap">
-                {[
-                  { icon: FiTruck,       label: "Free Delivery ₹499+"     },
-                  { icon: FiShield,      label: "100% Secure Payments"    },
-                  { icon: FiRotateCcw,   label: "7-Day Easy Returns"      },
-                  { icon: FiCheckCircle, label: "Verified Sellers Only"   },
-                  { icon: FiZap,         label: "Same-Day Delivery"       },
-                ].map(({ icon: Icon, label }, i) => (
-                  <div key={label} className="flex items-center gap-2 whitespace-nowrap">
-                    <Icon className="text-sm shrink-0" style={{ color: i % 2 === 0 ? "#f472b6" : "#818cf8" }} />
-                    <span className="text-xs font-semibold" style={{ color: "rgba(148,163,184,0.8)" }}>{label}</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
           </div>
+
 
           {/* Experience Switcher / Toggle Section */}
           <ExperienceSwitcher />
