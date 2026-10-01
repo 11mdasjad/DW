@@ -31,6 +31,7 @@ import heroSlide2 from "../../../../data/hero/slide2.png";
 import heroSlide3 from "../../../../data/hero/slide3.png";
 import heroSlide4 from "../../../../data/hero/slide4.png";
 import stylishWatchImg from "../../../../data/products/stylish watch.png";
+import dwellmartHeroBanner from "../../../../data/hero/dwellmart_hero_fullscreen.jpg";
 import { getImageUrl, calculateDiscount, getPlaceholderImage } from "../../../shared/utils/helpers";
 import ExperienceSwitcher from "../components/QuickCommerce/ExperienceSwitcher";
 
@@ -623,155 +624,126 @@ const MobileHome = () => {
             transform: `translateY(${Math.min(pullDistance, 80)}px)`,
             transition: isPulling ? "none" : "transform 0.3s ease-out",
           }}>
-          {/* Full-Width Hero Banner */}
-          <div className="px-3 sm:px-6 py-3 sm:py-4">
-            <div
-              className="relative w-full h-72 sm:h-96 md:h-[440px] lg:h-[480px] xl:h-[520px] rounded-2xl sm:rounded-3xl overflow-hidden shadow-xl border border-gray-800/40 bg-gray-950 group"
-              data-carousel
-              onTouchStart={onTouchStart}
-              onTouchMove={onTouchMove}
-              onTouchEnd={onTouchEnd}
-              style={{ touchAction: "pan-y", userSelect: "none" }}
-            >
-              {/* Slider Track Container */}
+          {/* ── FULL-SCREEN HERO BANNER ── */}
+          <div
+            className="relative w-full overflow-hidden"
+            style={{ height: "100svh", minHeight: "560px", maxHeight: "900px" }}
+          >
+            {/* Background Image */}
+            <img
+              src={dwellmartHeroBanner}
+              alt="Dwell Mart – Shop Smarter, Live Better"
+              className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none"
+              draggable={false}
+              fetchpriority="high"
+            />
+
+            {/* Dark overlay gradient — left-heavy so text always readable */}
+            <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/30 to-black/10 pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+
+            {/* Content */}
+            <div className="relative z-10 flex flex-col justify-center h-full px-6 sm:px-10 md:px-16 lg:px-24 pb-16 max-w-3xl">
+
+              {/* Badge */}
               <motion.div
-                className="flex h-full"
-                style={{
-                  width: `${slides.length * 100}%`,
-                  height: "100%",
-                }}
-                animate={{
-                  x:
-                    dragOffset !== 0
-                      ? `calc(-${currentSlide * (100 / slides.length)}% - ${dragOffset}px)`
-                      : `-${currentSlide * (100 / slides.length)}%`,
-                }}
-                transition={{
-                  duration: dragOffset !== 0 ? 0 : 0.6,
-                  ease: [0.25, 0.46, 0.45, 0.94],
-                  type: "tween",
-                }}
+                initial={{ opacity: 0, y: -12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-400/20 border border-emerald-400/50 backdrop-blur-md text-emerald-300 text-[11px] font-black uppercase tracking-widest mb-4 w-fit"
               >
-                {slides.map((slide, index) => (
-                  <div
-                    key={index}
-                    className="flex-shrink-0 relative h-full overflow-hidden"
-                    onClick={() => handleSlideClick(slide)}
-                    style={{
-                      width: `${100 / slides.length}%`,
-                      height: "100%",
-                      cursor: slide?.link ? "pointer" : "default",
-                    }}
-                  >
-                    <LazyImage
-                      src={slide.image}
-                      alt={slide.title || `Slide ${index + 1}`}
-                      className="w-full h-full object-cover pointer-events-none select-none transition-transform duration-700 group-hover:scale-105"
-                      draggable={false}
-                      onError={(e) => {
-                        e.target.src = getPlaceholderImage(1200, 600, `Slide ${index + 1}`);
-                      }}
-                    />
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>For Every Home · For Every Business</span>
+              </motion.div>
+
+              {/* Headline */}
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.55, delay: 0.2 }}
+                className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-tight mb-3 drop-shadow-lg"
+              >
+                <span className="text-white">Shop Smarter,</span>
+                <br />
+                <span className="text-emerald-400">Live Better</span>
+              </motion.h1>
+
+              {/* Subtitle */}
+              <motion.p
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.32 }}
+                className="text-sm sm:text-base md:text-lg text-gray-200 font-medium mb-7 max-w-xl leading-relaxed drop-shadow"
+              >
+                From daily essentials to exciting discoveries,<br />
+                everything you need is just a click away.
+              </motion.p>
+
+              {/* CTA Buttons */}
+              <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.44 }}
+                className="flex flex-wrap items-center gap-3 sm:gap-4"
+              >
+                {/* Shop Now */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/shop")}
+                  className="flex items-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-sm sm:text-base shadow-xl hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
+                >
+                  <FiShoppingBag className="text-base shrink-0" />
+                  <span>Shop Now</span>
+                  <FiArrowRight className="text-sm shrink-0 transition-transform group-hover:translate-x-1" />
+                </button>
+
+                {/* Explore Deals */}
+                <button
+                  type="button"
+                  onClick={() => navigate("/new-arrivals")}
+                  className="flex items-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/35 text-white border border-white/50 hover:border-white/80 backdrop-blur-md font-bold text-sm sm:text-base shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer whitespace-nowrap"
+                >
+                  <FiZap className="text-base text-emerald-300 shrink-0" />
+                  <span>Explore Deals</span>
+                  <FiArrowRight className="text-sm shrink-0" />
+                </button>
+              </motion.div>
+
+              {/* Trust Badges */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5, delay: 0.6 }}
+                className="hidden sm:flex items-center gap-5 mt-8"
+              >
+                {[
+                  { icon: FiTruck, label: "Free Delivery" },
+                  { icon: FiShield, label: "Secure Payments" },
+                  { icon: FiRotateCcw, label: "Easy Returns" },
+                  { icon: FiCheckCircle, label: "Authentic Products" },
+                ].map(({ icon: Icon, label }) => (
+                  <div key={label} className="flex items-center gap-1.5 text-white/80 text-xs font-semibold">
+                    <Icon className="text-emerald-400 text-base shrink-0" />
+                    <span>{label}</span>
                   </div>
                 ))}
               </motion.div>
-
-              {/* Ambient Gradients to ensure text and buttons stand out vibrantly */}
-              <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent pointer-events-none z-10" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none z-10" />
-
-              {/* Hero Floating Content & Action Buttons */}
-              <div className="absolute inset-0 z-20 flex flex-col justify-end sm:justify-center p-5 sm:p-8 md:p-12 lg:p-16 max-w-2xl pointer-events-none">
-                {/* Floating Badge */}
-                <div className="inline-flex items-center gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-amber-400/20 border border-amber-400/50 backdrop-blur-md text-amber-300 text-[10px] sm:text-xs font-black uppercase tracking-wider mb-2 sm:mb-3 w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  <span>{t("Exclusive Collection")}</span>
-                </div>
-
-                {/* Main Heading */}
-                <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight drop-shadow-md leading-tight mb-2">
-                  {t("Elevate Your Style")}
-                </h1>
-
-                {/* Subtitle */}
-                <p className="text-xs sm:text-sm md:text-base text-gray-200 font-medium mb-5 sm:mb-7 max-w-lg drop-shadow line-clamp-2 sm:line-clamp-none">
-                  {t("Shop verified premier brands, exclusive wholesale deals & lightning-fast delivery.")}
-                </p>
-
-                {/* Two Action Buttons: Shop Now and Explore Deals */}
-                <div className="flex items-center gap-3 sm:gap-4 pointer-events-auto flex-wrap sm:flex-nowrap">
-                  {/* 1. Shop Now -> navigates to /shop */}
-                  <button
-                    type="button"
-                    onClick={() => navigate("/shop")}
-                    className="px-5 sm:px-8 py-2.5 sm:py-3.5 rounded-xl bg-amber-400 hover:bg-amber-500 active:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm flex items-center gap-2 shadow-lg hover:shadow-amber-400/30 transition-all transform hover:-translate-y-0.5 active:scale-95 group/btn cursor-pointer uppercase tracking-wider whitespace-nowrap"
-                  >
-                    <FiShoppingBag className="text-sm sm:text-base shrink-0" />
-                    <span>{t("Shop Now")}</span>
-                    <FiArrowRight className="text-sm shrink-0 transition-transform group-hover/btn:translate-x-1" />
-                  </button>
-
-                  {/* 2. Explore Deals -> navigates to /new-arrivals */}
-                  <button
-                    type="button"
-                    onClick={() => navigate("/new-arrivals")}
-                    className="px-5 sm:px-7 py-2.5 sm:py-3.5 rounded-xl bg-white/20 hover:bg-white/30 active:bg-white/40 text-white border border-white/40 hover:border-white/70 backdrop-blur-md font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all transform hover:-translate-y-0.5 active:scale-95 group/deal cursor-pointer whitespace-nowrap"
-                  >
-                    <FiZap className="text-sm sm:text-base text-amber-300 group-hover/deal:scale-110 transition-transform shrink-0" />
-                    <span>{t("Explore Deals")}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Prev / Next Slide Arrows (Desktop Hover) */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
-                  setAutoSlidePaused(true);
-                  setTimeout(() => setAutoSlidePaused(false), 2500);
-                }}
-                className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 hover:bg-black/70 text-white border border-white/20 items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95"
-                aria-label="Previous slide"
-              >
-                <FiChevronLeft className="text-xl" />
-              </button>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentSlide((prev) => (prev + 1) % slides.length);
-                  setAutoSlidePaused(true);
-                  setTimeout(() => setAutoSlidePaused(false), 2500);
-                }}
-                className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/40 hover:bg-black/70 text-white border border-white/20 items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-md hover:scale-105 active:scale-95"
-                aria-label="Next slide"
-              >
-                <FiChevronRight className="text-xl" />
-              </button>
-
-              {/* Slide Indicators / Dots */}
-              <div className="absolute bottom-4 right-4 sm:right-8 flex gap-2 z-20 pointer-events-auto">
-                {slides.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      setCurrentSlide(index);
-                      setAutoSlidePaused(true);
-                      setTimeout(() => setAutoSlidePaused(false), 2000);
-                    }}
-                    className={`h-2 rounded-full transition-all cursor-pointer ${
-                      index === currentSlide
-                        ? "bg-amber-400 w-7 shadow-sm"
-                        : "bg-white/50 hover:bg-white/80 w-2"
-                    }`}
-                    aria-label={`Slide ${index + 1}`}
-                  />
-                ))}
-              </div>
             </div>
+
+            {/* Scroll indicator */}
+            <motion.div
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-white/50 z-10"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1, duration: 0.5 }}
+            >
+              <span className="text-[10px] uppercase tracking-widest font-semibold">Scroll</span>
+              <motion.div
+                className="w-px h-8 bg-gradient-to-b from-white/50 to-transparent"
+                animate={{ scaleY: [1, 0.4, 1] }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+              />
+            </motion.div>
           </div>
 
           {/* Experience Switcher / Toggle Section — positioned directly below Hero Banner */}
