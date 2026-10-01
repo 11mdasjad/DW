@@ -624,51 +624,42 @@ const MobileHome = () => {
             transform: `translateY(${Math.min(pullDistance, 80)}px)`,
             transition: isPulling ? "none" : "transform 0.3s ease-out",
           }}>
-          {/* ── HERO BANNER — 6:2 Image Banner ── */}
+          {/* ── HERO BANNER — 6:2 Dwell Mart Image ── */}
           <div
             className="relative w-full overflow-hidden"
             style={{
               aspectRatio: "6 / 2",
-              minHeight: "300px",
-              maxHeight: "560px",
+              minHeight: "280px",
+              maxHeight: "520px",
             }}
           >
-            {/* Banner image — fills full 6:2 area */}
+            {/* Banner image — anchored LEFT so logo/text never gets cropped */}
             <img
               src={dwellmartBanner6x2}
               alt="Dwell Mart — Everything You Need, All in One Place"
-              className="absolute inset-0 w-full h-full select-none pointer-events-none"
-              style={{ objectFit: "cover", objectPosition: "center center" }}
+              className="w-full h-full select-none pointer-events-none"
+              style={{ objectFit: "cover", objectPosition: "left center", display: "block" }}
               draggable={false}
               fetchpriority="high"
             />
 
-            {/* Subtle gradient overlay on left — makes buttons pop */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background: "linear-gradient(90deg, rgba(255,255,255,0.18) 0%, transparent 55%)",
-              }}
-            />
-
-            {/* CTA Buttons — bottom-left, matching the banner's badge row */}
+            {/* CTA buttons — overlaid bottom-left, above the image's badge row */}
             <motion.div
               className="absolute z-10 flex items-center gap-3"
-              style={{ bottom: "8%", left: "3.5%" }}
-              initial={{ opacity: 0, y: 16 }}
+              style={{ bottom: "10%", left: "2.5%" }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
+              transition={{ duration: 0.45, delay: 0.25 }}
             >
-              {/* Shop Now */}
               <button
                 type="button"
                 onClick={() => navigate("/shop")}
-                className="group flex items-center gap-2 rounded-xl font-black text-white cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl active:scale-95"
+                className="group flex items-center gap-2 rounded-xl font-black text-white cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
                 style={{
-                  padding: "11px 26px",
-                  fontSize: "clamp(0.82rem, 1.1vw, 0.95rem)",
+                  padding: "10px 24px",
+                  fontSize: "clamp(0.8rem, 1vw, 0.92rem)",
                   background: "#111827",
-                  boxShadow: "0 4px 20px rgba(17,24,39,0.35)",
+                  boxShadow: "0 4px 18px rgba(17,24,39,0.4)",
                 }}
               >
                 <FiShoppingBag className="text-sm shrink-0" />
@@ -676,19 +667,18 @@ const MobileHome = () => {
                 <FiArrowRight className="text-xs shrink-0 transition-transform duration-300 group-hover:translate-x-1" />
               </button>
 
-              {/* Explore Deals */}
               <button
                 type="button"
                 onClick={() => navigate("/new-arrivals")}
                 className="group flex items-center gap-2 rounded-xl font-bold cursor-pointer transition-all duration-300 hover:-translate-y-0.5 active:scale-95"
                 style={{
-                  padding: "10px 22px",
-                  fontSize: "clamp(0.82rem, 1.1vw, 0.95rem)",
-                  background: "rgba(255,255,255,0.88)",
-                  border: "1.5px solid rgba(17,24,39,0.18)",
+                  padding: "9px 20px",
+                  fontSize: "clamp(0.8rem, 1vw, 0.92rem)",
+                  background: "rgba(255,255,255,0.85)",
+                  border: "1.5px solid rgba(17,24,39,0.15)",
                   color: "#111827",
                   backdropFilter: "blur(8px)",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+                  boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
                 }}
               >
                 <FiZap className="text-sm shrink-0" style={{ color: "#d97706" }} />
@@ -696,8 +686,6 @@ const MobileHome = () => {
                 <FiArrowRight className="text-xs shrink-0 opacity-50 transition-transform duration-300 group-hover:translate-x-1" />
               </button>
             </motion.div>
-          </div>
-
 
           {/* Experience Switcher / Toggle Section */}
           <ExperienceSwitcher />
