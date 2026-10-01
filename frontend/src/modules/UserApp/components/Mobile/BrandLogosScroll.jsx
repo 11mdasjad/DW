@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { getCatalogBrands } from '../../data/catalogData';
 
 const getBrandInitials = (name) => {
@@ -12,100 +11,28 @@ const getBrandInitials = (name) => {
 
 const BrandLogosScroll = ({ brands = null }) => {
   const navigate = useNavigate();
-  const scrollRef = useRef(null);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef({ x: 0, scrollLeft: 0, moved: false });
 
   const fallbackBrands = getCatalogBrands();
-  const displayBrands = Array.isArray(brands) && brands.length > 0
+  const baseBrands = Array.isArray(brands) && brands.length > 0
     ? brands
     : fallbackBrands;
 
-  // Repeat brands to create a smooth, seamless infinite loop
-  const marqueeBrands = displayBrands.length > 0
-    ? [...displayBrands, ...displayBrands, ...displayBrands]
-    : [];
+  // Build a continuous duplicated list for seamless, infinite CSS transform marquee
+  let uniqueList = [...baseBrands];
+  while (uniqueList.length < 12 && baseBrands.length > 0) {
+    uniqueList = [...uniqueList, ...baseBrands];
+  }
+  // Exactly 2 equal halves for the 0% -> -50% loop
+  const marqueeBrands = [...uniqueList, ...uniqueList];
 
-  // Continuous auto-movement animation
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || displayBrands.length === 0) return;
-
-    let animId;
-    const speed = 0.65; // Smooth scroll velocity per frame
-
-    const step = () => {
-      if (!isPaused && !isDragging && el) {
-        el.scrollLeft += speed;
-        // Seamless infinite wrap-around
-        if (el.scrollLeft >= el.scrollWidth / 3) {
-          el.scrollLeft = 0;
-        }
-      }
-      animId = requestAnimationFrame(step);
-    };
-
-    animId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(animId);
-  }, [isPaused, isDragging, displayBrands.length]);
-
-  // Mouse drag-to-scroll support
-  const handleMouseDown = (e) => {
-    setIsPaused(true);
-    setIsDragging(true);
-    const el = scrollRef.current;
-    if (!el) return;
-    dragStartRef.current = {
-      x: e.pageX - el.offsetLeft,
-      scrollLeft: el.scrollLeft,
-      moved: false,
-    };
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDragging) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    e.preventDefault();
-    const x = e.pageX - el.offsetLeft;
-    const walk = (x - dragStartRef.current.x) * 1.5;
-    if (Math.abs(walk) > 4) {
-      dragStartRef.current.moved = true;
-    }
-    el.scrollLeft = dragStartRef.current.scrollLeft - walk;
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    setTimeout(() => {
-      dragStartRef.current.moved = false;
-    }, 50);
-  };
-
-  // Click on a brand card
   const handleBrandClick = (brand) => {
-    if (dragStartRef.current.moved) return;
     const target = brand.id || brand._id || brand.name;
     if (target) {
       navigate(`/brand/${encodeURIComponent(target)}`);
     }
   };
 
-  // Manual arrow navigation
-  const handleScrollLeft = () => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollBy({ left: -240, behavior: 'smooth' });
-    }
-  };
-
-  const handleScrollRight = () => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollBy({ left: 240, behavior: 'smooth' });
-    }
-  };
-
-  if (displayBrands.length === 0) return null;
+  if (baseBrands.length === 0) return null;
 
   return (
     <section className="bg-transparent w-full overflow-hidden px-3 sm:px-6 my-4 sm:my-6">
@@ -125,25 +52,7 @@ const BrandLogosScroll = ({ brands = null }) => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Scroll Navigation Arrows */}
-            <div className="hidden sm:flex items-center gap-1.5 mr-1">
-              <button
-                onClick={handleScrollLeft}
-                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-amber-400 text-gray-700 hover:text-amber-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
-                aria-label="Previous Brands"
-              >
-                <FiChevronLeft className="text-base" />
-              </button>
-              <button
-                onClick={handleScrollRight}
-                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-amber-400 text-gray-700 hover:text-amber-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
-                aria-label="Next Brands"
-              >
-                <FiChevronRight className="text-base" />
-              </button>
-            </div>
-
+          <div className="flex items-center gap-3">
             {/* See All link */}
             <button
               onClick={() => navigate('/brands')}
@@ -155,37 +64,30 @@ const BrandLogosScroll = ({ brands = null }) => {
           </div>
         </div>
 
-        {/* Moveable Circular Brands Track */}
-        <div
-          ref={scrollRef}
-          onMouseEnter={() => setIsPaused(true)}
-          onMouseLeave={() => {
-            setIsPaused(false);
-            if (isDragging) setIsDragging(false);
-          }}
-          onTouchStart={() => setIsPaused(true)}
-          onTouchEnd={() => setIsPaused(false)}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          className={`w-full overflow-x-auto scrollbar-hide py-2 ${
-            isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'
-          }`}
-          style={{ WebkitOverflowScrolling: 'touch' }}
-        >
-          <div className="flex gap-4 sm:gap-6 md:gap-7 items-center w-max">
+        {/* Marquee Viewport with subtle edge gradient fades */}
+        <div className="relative w-full overflow-hidden py-1">
+          {/* Left & Right Subtle Fade Overlays for seamless edge transition */}
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 sm:w-16 bg-gradient-to-r from-white via-white/80 to-transparent z-10" />
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 sm:w-16 bg-gradient-to-l from-white via-white/80 to-transparent z-10" />
+
+          {/* Continuous Automatic Hardware-Accelerated Marquee Track */}
+          <div className="brand-marquee-track flex gap-4 sm:gap-6 md:gap-8 items-center py-2">
             {marqueeBrands.map((brand, index) => {
               const uniqueKey = `${brand.id || brand._id || brand.name}-${index}`;
-              const hasValidLogo = Boolean(brand.logo && typeof brand.logo === 'string' && !brand.logo.includes('placeholder'));
+              const hasValidLogo = Boolean(
+                brand.logo &&
+                typeof brand.logo === 'string' &&
+                !brand.logo.includes('placeholder')
+              );
 
               return (
                 <div
                   key={uniqueKey}
                   onClick={() => handleBrandClick(brand)}
-                  className="flex-shrink-0 flex flex-col items-center group cursor-pointer w-20 sm:w-24 md:w-28 select-none transition-transform duration-200"
+                  className="flex-shrink-0 flex flex-col items-center group cursor-pointer w-22 sm:w-26 md:w-28 select-none transition-transform duration-200"
                 >
-                  {/* Round Shape Container for Brand Logo */}
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-white border-2 border-gray-100 shadow-xs group-hover:shadow-xl group-hover:border-amber-400 group-hover:-translate-y-1 p-2.5 sm:p-3 flex items-center justify-center transition-all duration-300 relative overflow-hidden active:scale-95">
+                  {/* Round Shape Circular Container for Brand Logo */}
+                  <div className="w-18 h-18 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full bg-white border-2 border-gray-100 shadow-xs group-hover:shadow-xl group-hover:border-amber-400 group-hover:scale-105 p-2.5 sm:p-3 flex items-center justify-center transition-all duration-300 relative overflow-hidden active:scale-95">
                     {hasValidLogo ? (
                       <img
                         src={brand.logo}
@@ -200,7 +102,7 @@ const BrandLogosScroll = ({ brands = null }) => {
                       />
                     ) : null}
 
-                    {/* Circular Monogram Fallback Badge */}
+                    {/* Circular Monogram Fallback Badge in 100% Round Shape */}
                     <div
                       className="brand-monogram w-full h-full rounded-full bg-gradient-to-tr from-amber-400 via-amber-300 to-amber-100 text-slate-900 font-black text-xs sm:text-sm md:text-base flex items-center justify-center uppercase tracking-wider shadow-inner"
                       style={{ display: hasValidLogo ? 'none' : 'flex' }}
@@ -210,7 +112,7 @@ const BrandLogosScroll = ({ brands = null }) => {
                   </div>
 
                   {/* Brand Label Underneath */}
-                  <p className="text-[11px] sm:text-xs md:text-sm font-bold text-gray-700 text-center truncate w-full px-1 mt-2 sm:mt-2.5 group-hover:text-amber-600 transition-colors">
+                  <p className="text-[11px] sm:text-xs md:text-sm font-bold text-gray-800 text-center truncate w-full px-1 mt-2 group-hover:text-amber-600 transition-colors">
                     {brand.name}
                   </p>
                 </div>

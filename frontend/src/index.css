@@ -466,4 +466,27 @@ body::-webkit-scrollbar {
   }
 }
 
+/* Continuous automatic moving brand marquee */
+@keyframes brandInfiniteMarquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.brand-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: brandInfiniteMarquee 32s linear infinite;
+  will-change: transform;
+}
+
+.brand-marquee-track:hover,
+.brand-marquee-track:active,
+.brand-marquee-track:focus-within {
+  animation-play-state: paused;
+}
+
 
