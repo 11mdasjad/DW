@@ -392,7 +392,7 @@ const ProductCard = ({ product, hideRating = false, isFlashSale = false, variant
 
           {/* Product Image */}
           <Link to={productLink} className="block">
-            <div className="w-full aspect-[4/3] bg-surface-background flex items-center justify-center overflow-hidden relative group-hover:bg-borderToken-light/50 transition-colors">
+            <div className="w-full aspect-square bg-white dark:bg-zinc-900/40 flex items-center justify-center overflow-hidden relative group-hover:bg-borderToken-light/40 transition-colors p-2 sm:p-2.5">
               {/* Offer & Discount Badges */}
               {(product.originalPrice || isFlashSale) && (
                 <div className="absolute top-2 left-2 z-10 flex flex-wrap items-center gap-1 max-w-[calc(100%-2.5rem)]">
@@ -413,7 +413,9 @@ const ProductCard = ({ product, hideRating = false, isFlashSale = false, variant
               <LazyImage
                 src={product.image}
                 alt={product.name}
-                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                wrapperClassName="w-full h-full flex items-center justify-center"
+                imageClassName="w-full h-full max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-500 ease-out select-none"
+                imgStyle={{ objectFit: "contain" }}
                 fallbackImage={getPlaceholderImage(400, 400, 'Product Image')}
               />
             </div>

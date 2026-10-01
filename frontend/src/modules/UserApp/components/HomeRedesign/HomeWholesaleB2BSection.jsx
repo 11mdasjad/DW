@@ -179,12 +179,12 @@ const HomeWholesaleB2BSection = () => {
             >
               <div>
                 {/* Product Image & MOQ Pill */}
-                <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-gray-100 mb-3">
+                <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-white p-2.5 flex items-center justify-center border border-gray-100 mb-3">
                   <img
                     src={item.image}
                     alt={item.name}
                     loading="lazy"
-                    className="w-full h-full object-cover object-center hover:scale-105 transition-transform duration-500"
+                    className="w-full h-full object-contain hover:scale-105 transition-transform duration-500"
                   />
                   <div className="absolute top-2 left-2 bg-[#17365D] text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md shadow">
                     MOQ: {item.moq} {item.unit}
