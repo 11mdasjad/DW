@@ -479,7 +479,7 @@ body::-webkit-scrollbar {
 .brand-marquee-track {
   display: flex;
   width: max-content;
-  animation: brandInfiniteMarquee var(--marquee-duration, 600s) linear infinite;
+  animation: brandInfiniteMarquee var(--marquee-duration, 900s) linear infinite;
   will-change: transform;
   contain: layout paint;
   backface-visibility: hidden;
