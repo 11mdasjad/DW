@@ -88,6 +88,16 @@ export const getImageUrl = (image, fallback = null) => {
       normalizedImage = normalizedImage.replace(/^https?:\/\/localhost:5000\//, "/");
     }
   }
+  // Convert Google Drive view/uc URLs to direct CDN URLs (lh3.googleusercontent.com)
+  if (normalizedImage.includes("drive.google.com")) {
+    const idMatch =
+      normalizedImage.match(/[?&]id=([a-zA-Z0-9_-]+)/) ||
+      normalizedImage.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+      normalizedImage.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (idMatch && idMatch[1]) {
+      return `https://lh3.googleusercontent.com/d/${idMatch[1]}=w1600`;
+    }
+  }
 
   // If it's already a full URL or a data URI, return as is
   if (normalizedImage.startsWith("data:") || normalizedImage.startsWith("http://") || normalizedImage.startsWith("https://")) return normalizedImage;

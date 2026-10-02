@@ -21,6 +21,7 @@ import ProductGrid from '../../../shared/components/ProductGrid';
 import { Input, Drawer, Chip, Button, Select, SkeletonLoader } from '../../../shared/components/ui';
 import useInfiniteProducts from '../../../hooks/useInfiniteProducts';
 import FacetedFilterSidebar from '../components/Filters/FacetedFilterSidebar';
+import { getImageUrl } from '../../../shared/utils/helpers';
 
 const normalizeId = (value) => String(value ?? '').trim();
 
@@ -58,8 +59,8 @@ const normalizeProduct = (raw) => {
     brandName: raw?.brandName || brandObj?.name || '',
     categoryId: normalizeId(categoryObj?._id || categoryObj?.id || raw?.categoryId),
     categoryName: raw?.categoryName || categoryObj?.name || '',
-    image: raw?.image || raw?.images?.[0] || '',
-    images: Array.isArray(raw?.images) ? raw.images : raw?.image ? [raw.image] : [],
+    image: getImageUrl(raw?.image || raw?.images?.[0] || ''),
+    images: Array.isArray(raw?.images) ? raw.images.map(img => getImageUrl(img)) : raw?.image ? [getImageUrl(raw.image)] : [],
     price: Number(raw?.price) || 0,
     rating: Number(raw?.rating) || 0,
   };

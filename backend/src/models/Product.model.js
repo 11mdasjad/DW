@@ -233,11 +233,44 @@ productSchema.index({ isActive: 1, 'wholesale.moq': 1 });
 productSchema.index({ isActive: 1, 'quickCommerce.packSize': 1 });
 
 /**
- * Product channel flags (quickCommerceEnabled, retailEnabled, wholesaleEnabled)
- * are publishing state, not authorization. Controllers may change only the
- * flag for the server-validated workspace; vendor channel status is checked
- * independently before catalog publication or order creation.
+ * Automatically convert Google Drive direct-view links (which are blocked in browsers)
+ * to high-performance Google CDN links (lh3.googleusercontent.com)
  */
+const convertGoogleDriveUrl = (url) => {
+    if (!url || typeof url !== 'string') return url;
+    if (!url.includes('drive.google.com')) return url;
+    const match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/) || url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+        return `https://lh3.googleusercontent.com/d/${match[1]}=w1600`;
+    }
+    return url;
+};
+
+productSchema.pre('save', function (next) {
+    if (this.image) {
+        this.image = convertGoogleDriveUrl(this.image);
+    }
+    if (Array.isArray(this.images)) {
+        this.images = this.images.map(convertGoogleDriveUrl);
+    }
+    next();
+});
+
+productSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function (next) {
+    const update = this.getUpdate();
+    if (!update) return next();
+    if (update.image) {
+        update.image = convertGoogleDriveUrl(update.image);
+    }
+    if (Array.isArray(update.images)) {
+        update.images = update.images.map(convertGoogleDriveUrl);
+    }
+    if (update.$set) {
+        if (update.$set.image) update.$set.image = convertGoogleDriveUrl(update.$set.image);
+        if (Array.isArray(update.$set.images)) update.$set.images = update.$set.images.map(convertGoogleDriveUrl);
+    }
+    next();
+});
 
 const Product = mongoose.model('Product', productSchema);
 export { Product };

@@ -22,12 +22,28 @@ const LazyImage = ({
   const [fallbackSrc, setFallbackSrc] = useState(null);
   const imgRef = useRef(null);
 
+  const normalizeImageUrl = (url) => {
+    if (!url || typeof url !== "string") return url;
+    if (url.includes("drive.google.com")) {
+      const match =
+        url.match(/[?&]id=([a-zA-Z0-9_-]+)/) ||
+        url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+        url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        return `https://lh3.googleusercontent.com/d/${match[1]}=w1600`;
+      }
+    }
+    return url;
+  };
+
+  const resolvedSrc = normalizeImageUrl(src);
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            setImageSrc(src);
+            setImageSrc(resolvedSrc);
             observer.disconnect();
           }
         });
@@ -48,7 +64,7 @@ const LazyImage = ({
       }
       observer.disconnect();
     };
-  }, [src]);
+  }, [resolvedSrc]);
 
   const handleLoad = () => {
     setIsLoaded(true);

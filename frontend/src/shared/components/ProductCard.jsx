@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import { useCartStore, useUIStore } from "../store/useStore";
 import { useWishlistStore } from "../store/wishlistStore";
-import { formatPrice, getPlaceholderImage } from "../utils/helpers";
+import { formatPrice, getPlaceholderImage, getImageUrl } from "../utils/helpers";
 import Price from "./Price";
 import toast from "react-hot-toast";
 import LazyImage from "./LazyImage";
@@ -411,7 +411,7 @@ const ProductCard = ({ product, hideRating = false, isFlashSale = false, variant
                 </div>
               )}
               <LazyImage
-                src={product.image}
+                src={getImageUrl(product.image)}
                 alt={product.name}
                 wrapperClassName="w-full h-full flex items-center justify-center"
                 imageClassName="w-full h-full max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-500 ease-out select-none"
