@@ -90,6 +90,7 @@
         "title": "Offers & Sliders",
         "route": "/admin/offers",
         "children": [
+          "Hero Banner",
           "Home Sliders",
           "Homepage Sections",
           "Festival Offers",

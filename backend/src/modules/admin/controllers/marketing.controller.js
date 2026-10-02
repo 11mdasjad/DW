@@ -70,7 +70,7 @@ const normalizeBannerLink = (value) => {
 
 const normalizeBannerPayload = (payload = {}) => {
     const rawType = String(payload?.type || '').trim().toLowerCase();
-    const type = rawType === 'hero' ? 'home_slider' : (payload?.type || 'home_slider');
+    const type = rawType || 'home_slider';
     return {
         ...payload,
         type,

@@ -1721,8 +1721,10 @@ router.get('/banners', marketingCache, asyncHandler(async (req, res) => {
 
     const reqExp = experience || req.headers['x-experience'];
     if (type) {
-        if (type === 'retail' || type === 'home_slider' || type === 'hero') {
-            filter.type = { $in: ['retail', 'home_slider', 'hero'] };
+        if (type === 'hero') {
+            filter.type = 'hero';
+        } else if (type === 'retail' || type === 'home_slider') {
+            filter.type = { $in: ['retail', 'home_slider'] };
         } else {
             filter.type = type;
         }

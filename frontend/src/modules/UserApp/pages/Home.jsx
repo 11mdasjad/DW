@@ -250,6 +250,7 @@ const MobileHome = () => {
   const [autoSlidePaused, setAutoSlidePaused] = useState(false);
   const [isDraggingSlide, setIsDraggingSlide] = useState(false);
   const [slides, setSlides] = useState(DEFAULT_HERO_SLIDES);
+  const [heroBanner, setHeroBanner] = useState(null);
   const [promoBanners, setPromoBanners] = useState([]);
   const [sideBanner, setSideBanner] = useState(null);
   const [selectedSections, setSelectedSections] = useState(() => selectHomeSections({}));
@@ -427,9 +428,20 @@ const MobileHome = () => {
           allBanners.map(b => translateObject(b, ['title', 'subtitle', 'description']))
         );
 
+        // Extract Homepage Hero Banner (type: hero)
+        const activeHeroBanner = translatedBanners.find(
+          (banner) => String(banner?.type || "") === "hero"
+        );
+        if (activeHeroBanner) {
+          setHeroBanner({
+            ...activeHeroBanner,
+            link: resolveBannerLink(activeHeroBanner),
+          });
+        }
+
         const bannerSlides = translatedBanners
           .filter((banner) =>
-            ["home_slider", "hero"].includes(String(banner?.type || ""))
+            ["home_slider"].includes(String(banner?.type || ""))
           )
           .sort((a, b) => toNumber(a.order, 0) - toNumber(b.order, 0))
           .map((banner, index) => ({
@@ -633,40 +645,15 @@ const MobileHome = () => {
               maxHeight: "520px",
             }}
           >
-            {/* Banner image — anchored LEFT so logo/text never gets cropped */}
+            {/* Banner image — loaded dynamically from CMS, fallback to clean default 6:2 banner */}
             <img
-              src={dwellmartBanner6x2}
-              alt="Dwell Mart — Everything You Need, All in One Place"
+              src={heroBanner?.image || dwellmartBanner6x2}
+              alt={heroBanner?.title || "Dwell Mart — Everything You Need, All in One Place"}
               className="w-full h-full select-none pointer-events-none"
               style={{ objectFit: "cover", objectPosition: "left center", display: "block" }}
               draggable={false}
               fetchpriority="high"
             />
-
-            {/* ── Cover the wrong AI logo top-left + overlay real DM logo ── */}
-            {/* Cream patch — matches banner background, hides the blue house icon */}
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                top: 0,
-                left: 0,
-                width: "22%",
-                height: "38%",
-                background: "linear-gradient(135deg, #f5f0e8 60%, transparent 100%)",
-              }}
-            />
-            {/* Real Dwell Mart logo overlay */}
-            <div
-              className="absolute"
-              style={{ top: "4%", left: "1.8%", width: "clamp(120px, 14vw, 220px)" }}
-            >
-              <img
-                src="/logo.png"
-                alt="Dwell Mart"
-                className="w-full h-auto object-contain select-none pointer-events-none"
-                draggable={false}
-              />
-            </div>
 
             {/* CTA buttons — overlaid bottom-left, above the image's badge row */}
             <motion.div
@@ -678,7 +665,7 @@ const MobileHome = () => {
             >
               <button
                 type="button"
-                onClick={() => navigate("/shop")}
+                onClick={() => navigate(heroBanner?.link || "/shop")}
                 className="group flex items-center gap-2 rounded-xl font-black text-white cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg active:scale-95"
                 style={{
                   padding: "10px 24px",

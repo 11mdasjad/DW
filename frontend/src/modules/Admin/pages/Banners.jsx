@@ -43,12 +43,14 @@ const Banners = () => {
 
         const matchesType =
           selectedType === 'all' ||
-          (selectedType === 'retail'
-            ? banner.type === 'retail' || banner.type === 'home_slider' || banner.type === 'hero'
+          (selectedType === 'hero'
+            ? banner.type === 'hero'
+            : selectedType === 'retail'
+            ? banner.type === 'retail' || banner.type === 'home_slider'
             : selectedType === 'wholesale'
             ? banner.type === 'wholesale'
             : selectedType === 'home_slider'
-            ? banner.type === 'home_slider' || banner.type === 'hero' || banner.type === 'retail'
+            ? banner.type === 'home_slider' || banner.type === 'retail'
             : banner.type === selectedType);
 
         const matchesStatus =
@@ -207,6 +209,7 @@ const Banners = () => {
             onChange={(e) => setSelectedType(e.target.value)}
             options={[
               { value: 'all', label: 'All Types' },
+              { value: 'hero', label: '🏠 Homepage Hero (6:2)' },
               { value: 'retail', label: '🛍️ Retail Store (B2C)' },
               { value: 'wholesale', label: '🏭 Wholesale Hub (B2B)' },
               { value: 'home_slider', label: 'Home Sliders' },
@@ -281,14 +284,16 @@ const Banners = () => {
                         </Badge>
                       </div>
                       <div className="absolute top-2 left-2">
-                        <Badge variant={banner.type === 'wholesale' ? 'warning' : banner.type === 'retail' || banner.type === 'home_slider' || banner.type === 'hero' ? 'primary' : 'info'}>
-                          {banner.type === 'retail'
+                        <Badge variant={banner.type === 'hero' ? 'primary' : banner.type === 'wholesale' ? 'warning' : banner.type === 'retail' || banner.type === 'home_slider' ? 'primary' : 'info'}>
+                          {banner.type === 'hero'
+                            ? '🏠 Homepage Hero (6:2)'
+                            : banner.type === 'retail'
                             ? '🛍️ Retail (B2C)'
                             : banner.type === 'wholesale'
                               ? '🏭 Wholesale (B2B)'
                               : banner.type === 'quick_commerce'
                                 ? '⚡ Quick Commerce'
-                                : (banner.type === 'home_slider' || banner.type === 'hero')
+                                : banner.type === 'home_slider'
                                   ? '🛍️ Retail Slider'
                                   : banner.type === 'promotional'
                                     ? 'Promo'

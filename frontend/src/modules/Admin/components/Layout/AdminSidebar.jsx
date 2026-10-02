@@ -129,6 +129,7 @@ export const CHILD_PERMISSION_MAP = {
   "Rider Payouts": "wallet.view",
 
   // Offers & Marketing
+  "Hero Banner": "offers.view",
   "Home Sliders": "offers.view",
   "Homepage Sections": "offers.view",
   "Festival Offers": "offers.view",
@@ -219,6 +220,7 @@ const getChildRoute = (parentRoute, childName) => {
       "Rider Payouts": "/admin/delivery/rider-payouts",
     },
     "/admin/offers": {
+      "Hero Banner": "/admin/offers/home-sliders?type=hero",
       "Home Sliders": "/admin/offers/home-sliders",
       "Homepage Sections": "/admin/offers/homepage-sections",
       "Festival Offers": "/admin/offers/festival-offers",

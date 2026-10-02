@@ -32,7 +32,7 @@ const BannerForm = ({ banner, onClose, onSave }) => {
   useEffect(() => {
     if (banner) {
       setFormData({
-        type: banner.type === "hero" ? "home_slider" : (banner.type || "home_slider"),
+        type: banner.type || "home_slider",
         title: banner.title || "",
         subtitle: banner.subtitle || "",
         description: banner.description || "",
@@ -205,6 +205,7 @@ const BannerForm = ({ banner, onClose, onSave }) => {
                       onChange={handleChange}
                       required
                       options={[
+                        { value: "hero", label: "🏠 Homepage Hero Banner (6:2 Aspect Ratio)" },
                         { value: "retail", label: "🛍️ Retail Store Banner (B2C Homepage)" },
                         { value: "wholesale", label: "🏭 Wholesale Hub Banner (B2B Homepage)" },
                         { value: "home_slider", label: "🖼️ Main Hero Slider" },
@@ -215,6 +216,11 @@ const BannerForm = ({ banner, onClose, onSave }) => {
                         { value: "banner", label: "Generic Banner" },
                       ]}
                     />
+                    {formData.type === "hero" && (
+                      <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                        💡 <strong>Homepage Hero Banner</strong> is displayed at the very top of the homepage in a 6:2 aspect ratio (recommended: 2064×512px or 1800×600px). Setting a link will make the &quot;Shop Now&quot; button navigate to that page.
+                      </p>
+                    )}
                   </div>
 
                   <div>

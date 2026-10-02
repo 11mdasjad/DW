@@ -17,14 +17,26 @@ const HomeSliders = () => {
   const isAppRoute = location.pathname.startsWith("/app");
   const { banners, initialize, createBanner, updateBanner, deleteBanner } =
     useBannerStore();
-  const [selectedBannerType, setSelectedBannerType] = useState("home_slider");
+  const searchParams = new URLSearchParams(location.search);
+  const initialType = searchParams.get("type") || "home_slider";
+  const [selectedBannerType, setSelectedBannerType] = useState(initialType);
+
+  useEffect(() => {
+    const typeFromUrl = new URLSearchParams(location.search).get("type");
+    if (typeFromUrl) {
+      setSelectedBannerType(typeFromUrl);
+    }
+  }, [location.search]);
 
   const sliders = useMemo(
     () =>
       (banners || [])
         .filter((banner) => {
+          if (selectedBannerType === "hero") {
+            return banner.type === "hero";
+          }
           if (selectedBannerType === "home_slider" || selectedBannerType === "retail") {
-            return banner.type === "home_slider" || banner.type === "hero" || banner.type === "retail";
+            return banner.type === "home_slider" || banner.type === "retail";
           }
           if (selectedBannerType === "wholesale") {
             return banner.type === "wholesale";
@@ -56,9 +68,7 @@ const HomeSliders = () => {
       order: sliderData.order,
       isActive: sliderData.status === "active",
       type:
-        sliderData.type === "hero"
-          ? "home_slider"
-          : sliderData.type || selectedBannerType,
+        sliderData.type || selectedBannerType,
     };
 
     try {
@@ -208,6 +218,7 @@ const HomeSliders = () => {
             value={selectedBannerType}
             onChange={(e) => setSelectedBannerType(e.target.value)}
             options={[
+              { value: "hero", label: "🏠 Homepage Hero Banner (6:2)" },
               { value: "home_slider", label: "🛍️ Retail Store Sliders (B2C)" },
               { value: "wholesale", label: "🏭 Wholesale Hub Sliders (B2B)" },
               { value: "quick_commerce", label: "⚡ Quick Commerce Sliders" },
@@ -229,7 +240,9 @@ const HomeSliders = () => {
             className="flex items-center gap-2 px-4 py-2 gradient-green text-white rounded-lg hover:shadow-glow-green transition-all font-semibold text-sm">
             <FiPlus />
             <span>
-              {selectedBannerType === "side_banner"
+              {selectedBannerType === "hero"
+                ? "Add Hero Banner"
+                : selectedBannerType === "side_banner"
                 ? "Add Side Banner"
                 : "Add Slider"}
             </span>
@@ -299,9 +312,13 @@ const HomeSliders = () => {
                 style={{ willChange: "transform" }}>
                 <h3 className="text-lg font-bold text-gray-800 mb-4">
                   {editingSlider.id
-                    ? editingSlider.type === "side_banner"
+                    ? editingSlider.type === "hero"
+                      ? "Edit Hero Banner"
+                      : editingSlider.type === "side_banner"
                       ? "Edit Side Banner"
                       : "Edit Slider"
+                    : selectedBannerType === "hero"
+                    ? "Add Homepage Hero Banner"
                     : selectedBannerType === "side_banner"
                     ? "Add Side Banner"
                     : "Add Slider"}
@@ -330,6 +347,7 @@ const HomeSliders = () => {
                       })
                     }
                     options={[
+                      { value: "hero", label: "🏠 Homepage Hero Banner (6:2)" },
                       { value: "home_slider", label: "🛍️ Retail Store Slider (B2C)" },
                       { value: "wholesale", label: "🏭 Wholesale Hub Slider (B2B)" },
                       { value: "quick_commerce", label: "⚡ Quick Commerce Banner" },
@@ -370,6 +388,13 @@ const HomeSliders = () => {
                       disabled={isUploadingImage}
                     />
                   </label>
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                    {selectedBannerType === "hero"
+                      ? "💡 Recommended for Hero Banner: 2064×512px or 1800×600px (6:2 aspect ratio). WebP/JPG/PNG."
+                      : selectedBannerType === "side_banner"
+                      ? "💡 Recommended for Side Banner: 400×500px (4:5 aspect ratio). WebP/PNG/JPG."
+                      : "💡 Recommended for Slider: 1200×500px (2.4:1 aspect ratio). WebP/PNG/JPG."}
+                  </p>
                   <BannerLinkInput
                     name="link"
                     value={editingSlider.link || ""}
